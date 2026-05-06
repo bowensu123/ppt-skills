@@ -1,25 +1,25 @@
 {
-  "name": "clean-tech",
+  "name": "academic-soft",
   "palette": {
-    "primary": "0F62FE",
-    "primary_soft": "EAF1FF",
-    "accent": "42BE65",
-    "accent_warn": "F1C21B",
-    "text_strong": "161616",
-    "text": "393939",
-    "text_muted": "6F6F6F",
+    "primary": "5B7C99",
+    "primary_soft": "EAF1F8",
+    "accent": "6B8E5A",
+    "accent_warn": "C97D60",
+    "text_strong": "1F1F1F",
+    "text": "303030",
+    "text_muted": "707070",
     "background": "FFFFFF",
-    "surface": "F4F6FA",
-    "border": "DDE1E6"
+    "surface": "FBF7EF",
+    "border": "D9D2C2"
   },
   "typography": {
     "font_family": "Microsoft YaHei",
     "size_pt": {
-      "title": 28,
+      "title": 26,
       "subtitle": 14,
-      "h2": 14,
-      "body": 10.5,
-      "caption": 9,
+      "h2": 13,
+      "body": 10,
+      "caption": 8.5,
       "badge": 9
     },
     "bold": {
@@ -47,13 +47,14 @@
     "subtitle_gap_below_title_emu": 76200
   },
   "decoration": {
-    "card_fill_role": "background",
+    "card_fill_role": "surface",
     "card_border_role": "border",
-    "card_border_pt": 0.75,
-    "card_corner_radius_emu": 91440,
+    "card_border_pt": 0.5,
+    "card_corner_radius_ratio": 0.04,
+    "card_shadow": false,
     "badge_fill_role": "primary",
     "section_fill_role": "primary_soft",
     "connector_color_role": "text_muted",
-    "connector_pt": 1.0
+    "connector_pt": 0.75
   }
 }

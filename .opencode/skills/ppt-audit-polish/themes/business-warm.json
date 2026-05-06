@@ -1,24 +1,24 @@
 {
-  "name": "clean-tech",
+  "name": "business-warm",
   "palette": {
-    "primary": "0F62FE",
-    "primary_soft": "EAF1FF",
-    "accent": "42BE65",
-    "accent_warn": "F1C21B",
-    "text_strong": "161616",
-    "text": "393939",
-    "text_muted": "6F6F6F",
+    "primary": "C2410C",
+    "primary_soft": "FEF1E8",
+    "accent": "0F766E",
+    "accent_warn": "B45309",
+    "text_strong": "171717",
+    "text": "404040",
+    "text_muted": "737373",
     "background": "FFFFFF",
-    "surface": "F4F6FA",
-    "border": "DDE1E6"
+    "surface": "FAF6F1",
+    "border": "E5DDD0"
   },
   "typography": {
     "font_family": "Microsoft YaHei",
     "size_pt": {
-      "title": 28,
-      "subtitle": 14,
+      "title": 30,
+      "subtitle": 16,
       "h2": 14,
-      "body": 10.5,
+      "body": 11,
       "caption": 9,
       "badge": 9
     },
@@ -33,7 +33,7 @@
     "color_role": {
       "title": "text_strong",
       "subtitle": "text_muted",
-      "h2": "text_strong",
+      "h2": "primary",
       "body": "text",
       "caption": "text_muted",
       "badge": "background"
@@ -42,15 +42,16 @@
   "spacing": {
     "slide_padding_emu": 457200,
     "card_padding_emu": 137160,
-    "row_min_gap_emu": 137160,
-    "col_min_gap_emu": 137160,
-    "subtitle_gap_below_title_emu": 76200
+    "row_min_gap_emu": 182880,
+    "col_min_gap_emu": 182880,
+    "subtitle_gap_below_title_emu": 91440
   },
   "decoration": {
-    "card_fill_role": "background",
+    "card_fill_role": "surface",
     "card_border_role": "border",
     "card_border_pt": 0.75,
-    "card_corner_radius_emu": 91440,
+    "card_corner_radius_ratio": 0.06,
+    "card_shadow": true,
     "badge_fill_role": "primary",
     "section_fill_role": "primary_soft",
     "connector_color_role": "text_muted",

@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ppt-audit-polish theme",
+  "type": "object",
+  "required": ["name", "palette", "typography", "spacing", "decoration"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "palette": {
+      "type": "object",
+      "required": ["text", "background"],
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9A-Fa-f]{6}$"
+      }
+    },
+    "typography": {
+      "type": "object",
+      "required": ["font_family", "size_pt", "bold", "color_role"],
+      "properties": {
+        "font_family": {"type": "string"},
+        "size_pt": {
+          "type": "object",
+          "additionalProperties": {"type": "number", "minimum": 4, "maximum": 96}
+        },
+        "bold": {
+          "type": "object",
+          "additionalProperties": {"type": "boolean"}
+        },
+        "color_role": {
+          "type": "object",
+          "additionalProperties": {"type": "string"}
+        }
+      }
+    },
+    "spacing": {
+      "type": "object",
+      "required": ["slide_padding_emu"],
+      "properties": {
+        "slide_padding_emu": {"type": "integer", "minimum": 0},
+        "card_padding_emu": {"type": "integer", "minimum": 0},
+        "row_min_gap_emu": {"type": "integer", "minimum": 0},
+        "col_min_gap_emu": {"type": "integer", "minimum": 0},
+        "subtitle_gap_below_title_emu": {"type": "integer", "minimum": 0}
+      }
+    },
+    "decoration": {
+      "type": "object",
+      "properties": {
+        "card_fill_role": {"type": "string"},
+        "card_border_role": {"type": "string"},
+        "card_border_pt": {"type": "number", "minimum": 0},
+        "card_corner_radius_emu": {"type": "integer", "minimum": 0},
+        "card_corner_radius_ratio": {"type": "number", "minimum": 0, "maximum": 0.5},
+        "card_shadow": {"type": "boolean"},
+        "badge_fill_role": {"type": "string"},
+        "section_fill_role": {"type": "string"},
+        "connector_color_role": {"type": "string"},
+        "connector_pt": {"type": "number", "minimum": 0}
+      }
+    }
+  }
+}

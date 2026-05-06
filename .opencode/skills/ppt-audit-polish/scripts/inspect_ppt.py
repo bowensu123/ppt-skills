@@ -72,7 +72,7 @@ def _fill_hex(shape) -> str | None:
         if rgb is None:
             return None
         return str(rgb)
-    except (AttributeError, ValueError, KeyError):
+    except (AttributeError, ValueError, KeyError, TypeError):
         return None
 
 
@@ -86,7 +86,7 @@ def _line_hex(shape) -> str | None:
         if rgb is None:
             return None
         return str(rgb)
-    except (AttributeError, ValueError, KeyError):
+    except (AttributeError, ValueError, KeyError, TypeError):
         return None
 
 
@@ -101,6 +101,76 @@ def _normalize_geometry(left: int, top: int, width: int, height: int) -> tuple[i
     return left, top, width, height, flipped
 
 
+def _text_first_color(shape) -> str | None:
+    """Return the hex color of the first run with an explicit color, if any."""
+    if not getattr(shape, "has_text_frame", False):
+        return None
+    try:
+        for paragraph in shape.text_frame.paragraphs:
+            for run in paragraph.runs:
+                color = run.font.color
+                if color.type is not None and color.rgb is not None:
+                    return str(color.rgb)
+        for paragraph in shape.text_frame.paragraphs:
+            color = paragraph.font.color
+            if color.type is not None and color.rgb is not None:
+                return str(color.rgb)
+    except (AttributeError, ValueError, KeyError, TypeError):
+        return None
+    return None
+
+
+_NS_A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+
+
+def _picture_crop(shape) -> dict | None:
+    """For pictures, return per-100000 src crop fractions {l, t, r, b}."""
+    try:
+        el = shape._element
+        for child in el.iter():
+            if child.tag.endswith("}srcRect"):
+                return {
+                    "l": int(child.get("l", "0") or 0),
+                    "t": int(child.get("t", "0") or 0),
+                    "r": int(child.get("r", "0") or 0),
+                    "b": int(child.get("b", "0") or 0),
+                }
+    except (AttributeError, ValueError):
+        pass
+    return None
+
+
+def _table_info(shape) -> dict | None:
+    if not getattr(shape, "has_table", False):
+        return None
+    try:
+        table = shape.table
+        rows = len(table.rows)
+        cols = len(table.columns)
+        empty = 0
+        for r in table.rows:
+            for c in r.cells:
+                if not (c.text or "").strip():
+                    empty += 1
+        return {"rows": rows, "cols": cols, "empty_cells": empty}
+    except (AttributeError, ValueError):
+        return None
+
+
+def _chart_info(shape) -> dict | None:
+    if not getattr(shape, "has_chart", False):
+        return None
+    try:
+        chart = shape.chart
+        return {
+            "chart_type": str(chart.chart_type),
+            "series_count": len(list(chart.series)),
+            "has_legend": chart.has_legend,
+        }
+    except (AttributeError, ValueError):
+        return None
+
+
 def _emit_object(slide_index: int, object_index: int, shape) -> dict:
     raw_left = int(shape.left) if shape.left is not None else 0
     raw_top = int(shape.top) if shape.top is not None else 0
@@ -113,7 +183,7 @@ def _emit_object(slide_index: int, object_index: int, shape) -> dict:
     font_sizes = _font_sizes(shape)
     is_anomalous = width <= 0 or height <= 0
 
-    return {
+    out = {
         "object_index": object_index,
         "shape_id": getattr(shape, "shape_id", object_index),
         "name": getattr(shape, "name", f"Shape {object_index}"),
@@ -131,26 +201,58 @@ def _emit_object(slide_index: int, object_index: int, shape) -> dict:
         "font_sizes": font_sizes,
         "fill_hex": _fill_hex(shape),
         "line_hex": _line_hex(shape),
+        "text_color": _text_first_color(shape),
     }
+    if kind == "picture":
+        crop = _picture_crop(shape)
+        if crop:
+            out["crop"] = crop
+    elif kind == "table":
+        ti = _table_info(shape)
+        if ti:
+            out["table_info"] = ti
+    elif kind == "chart":
+        ci = _chart_info(shape)
+        if ci:
+            out["chart_info"] = ci
+    return out
 
 
 def inspect_presentation(input_path: Path) -> dict:
     prs = Presentation(str(input_path))
     slides: list[dict] = []
 
+    # Lazy imports so tests / minimal envs without these helpers still parse.
+    try:
+        from _master_inherit import collect_inheritance_info
+    except ImportError:
+        collect_inheritance_info = None  # type: ignore
+    try:
+        from _group_recurse import walk_group_children
+    except ImportError:
+        walk_group_children = None  # type: ignore
+
     for slide_index, slide in enumerate(prs.slides, start=1):
         objects: list[dict] = []
+        group_children: list[dict] = []
         for object_index, shape in enumerate(slide.shapes, start=1):
-            objects.append(_emit_object(slide_index, object_index, shape))
+            obj = _emit_object(slide_index, object_index, shape)
+            objects.append(obj)
+            # If this is a group, also collect transformed children for opt-in detectors.
+            if obj.get("kind") == "group" and walk_group_children:
+                group_children.extend(walk_group_children(shape))
 
-        slides.append(
-            {
-                "slide_index": slide_index,
-                "width_emu": int(prs.slide_width),
-                "height_emu": int(prs.slide_height),
-                "objects": objects,
-            }
-        )
+        slide_payload = {
+            "slide_index": slide_index,
+            "width_emu": int(prs.slide_width),
+            "height_emu": int(prs.slide_height),
+            "objects": objects,
+            "group_children": group_children,
+        }
+        if collect_inheritance_info:
+            slide_payload["inheritance"] = collect_inheritance_info(slide)
+
+        slides.append(slide_payload)
 
     return {"input": str(input_path), "slides": slides}
 

@@ -1,11 +1,12 @@
 [project]
 name = "ppt-audit-polish"
-version = "0.1.0"
+version = "0.2.0"
 requires-python = ">=3.11"
 dependencies = [
   "Pillow>=11.0.0",
   "PyMuPDF>=1.25.0",
   "python-pptx>=1.0.2",
+  "numpy>=1.26.0",
 ]
 
 [project.optional-dependencies]
@@ -14,5 +15,5 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = [".", "scripts"]
 testpaths = ["tests"]

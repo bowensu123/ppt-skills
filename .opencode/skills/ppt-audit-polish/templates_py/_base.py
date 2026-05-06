@@ -1,0 +1,129 @@
+"""Shared helpers used by every template renderer.
+
+Templates are pure Python modules with a ``render(prs, content, theme)``
+function. They build a fresh slide using python-pptx primitives. These
+helpers wrap the verbose pptx API.
+"""
+from __future__ import annotations
+
+from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from pptx.util import Emu, Pt
+
+
+def _hex(s: str) -> RGBColor:
+    s = s.lstrip("#")
+    return RGBColor(int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+
+
+def add_rect(slide, left, top, width, height, fill=None, line=None, line_pt=None,
+             corner_ratio: float | None = None, shape=MSO_SHAPE.RECTANGLE) -> object:
+    sp = slide.shapes.add_shape(shape, Emu(left), Emu(top), Emu(width), Emu(height))
+    if fill is not None:
+        sp.fill.solid(); sp.fill.fore_color.rgb = _hex(fill)
+    elif fill is False:
+        sp.fill.background()
+    if line == "none":
+        try:
+            sp.line.fill.background()
+        except (AttributeError, ValueError):
+            pass
+    elif line is not None:
+        sp.line.color.rgb = _hex(line)
+        if line_pt is not None:
+            sp.line.width = Pt(line_pt)
+    if corner_ratio is not None:
+        try:
+            sp.adjustments[0] = corner_ratio
+        except (IndexError, AttributeError):
+            pass
+    return sp
+
+
+def add_text(slide, left, top, width, height, text, *,
+             size_pt: float = 11, bold: bool = False, italic: bool = False,
+             color: str = "393939", family: str | None = None,
+             align: str = "left", v_align: str = "top",
+             fill: str | None = None, padding_emu: int | None = None) -> object:
+    box = slide.shapes.add_textbox(Emu(left), Emu(top), Emu(width), Emu(height))
+    tf = box.text_frame
+    tf.text = ""
+    tf.word_wrap = True
+    if padding_emu is not None:
+        tf.margin_left = Emu(padding_emu); tf.margin_right = Emu(padding_emu)
+        tf.margin_top = Emu(padding_emu); tf.margin_bottom = Emu(padding_emu)
+    if v_align == "middle":
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    elif v_align == "bottom":
+        tf.vertical_anchor = MSO_ANCHOR.BOTTOM
+    elif v_align == "top":
+        tf.vertical_anchor = MSO_ANCHOR.TOP
+
+    if fill is not None:
+        box.fill.solid(); box.fill.fore_color.rgb = _hex(fill)
+    try:
+        box.line.fill.background()
+    except (AttributeError, ValueError):
+        pass
+
+    para = tf.paragraphs[0]
+    align_map = {"left": PP_ALIGN.LEFT, "center": PP_ALIGN.CENTER, "right": PP_ALIGN.RIGHT, "justify": PP_ALIGN.JUSTIFY}
+    para.alignment = align_map.get(align, PP_ALIGN.LEFT)
+
+    run = para.add_run()
+    run.text = text
+    run.font.size = Pt(size_pt)
+    run.font.bold = bold
+    run.font.italic = italic
+    run.font.color.rgb = _hex(color)
+    if family:
+        run.font.name = family
+    return box
+
+
+def add_circle(slide, cx, cy, radius, fill, line="none") -> object:
+    return add_rect(slide, cx - radius, cy - radius, radius * 2, radius * 2,
+                    fill=fill, line=line, shape=MSO_SHAPE.OVAL)
+
+
+def add_rounded_rect(slide, left, top, width, height, *, fill=None, line=None, line_pt=None, corner_ratio=0.06):
+    return add_rect(slide, left, top, width, height,
+                    fill=fill, line=line, line_pt=line_pt,
+                    shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_ratio=corner_ratio)
+
+
+def horizontal_distribute(slide_w: int, n: int, margin: int) -> list[int]:
+    """Return left-edge x positions for n items evenly spaced across the slide.
+
+    Each item's slot width = (slide_w - 2*margin) / n.
+    Returns the left edge of each slot (caller decides item internal offset).
+    """
+    if n <= 0:
+        return []
+    available = slide_w - 2 * margin
+    slot_w = available // n
+    return [margin + i * slot_w for i in range(n)]
+
+
+def truncate(text: str, max_chars: int) -> str:
+    return text if len(text) <= max_chars else text[: max_chars - 1] + "…"
+
+
+def wipe_slides(prs) -> None:
+    """Remove every existing slide so a template can write a fresh first slide."""
+    sld_id_lst = prs.slides._sldIdLst
+    for sld_id in list(sld_id_lst):
+        sld_id_lst.remove(sld_id)
+
+
+def add_blank_slide(prs):
+    """Add a single blank slide using the layout-6 (blank) of the master."""
+    blank_layout = None
+    for layout in prs.slide_layouts:
+        if (layout.name or "").lower().startswith("blank"):
+            blank_layout = layout
+            break
+    if blank_layout is None:
+        blank_layout = prs.slide_layouts[6] if len(prs.slide_layouts) > 6 else prs.slide_layouts[0]
+    return prs.slides.add_slide(blank_layout)

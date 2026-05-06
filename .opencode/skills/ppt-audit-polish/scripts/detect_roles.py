@@ -6,8 +6,11 @@ from pathlib import Path
 from statistics import median
 
 
-# 1D adaptive clustering: split sorted points where consecutive gap exceeds factor * median gap.
-def _cluster_1d(points: list[tuple[int, int]], min_eps_emu: int) -> list[list[int]]:
+# 1D fixed-epsilon clustering. Each cluster is a contiguous run of points whose
+# consecutive gap stays within `eps_emu`. Adaptive thresholds are unsafe for dense
+# layouts (many shapes packed close together inflate the median gap and merge
+# unrelated columns), so we use a tight fixed tolerance instead.
+def _cluster_1d(points: list[tuple[int, int]], eps_emu: int) -> list[list[int]]:
     """points: list of (value, item_id). Returns list of clusters, each a list of item_ids."""
     if not points:
         return []
@@ -15,14 +18,10 @@ def _cluster_1d(points: list[tuple[int, int]], min_eps_emu: int) -> list[list[in
     if len(ordered) == 1:
         return [[ordered[0][1]]]
 
-    gaps = [ordered[i + 1][0] - ordered[i][0] for i in range(len(ordered) - 1)]
-    median_gap = max(median(gaps), 1)
-    eps = max(min_eps_emu, int(median_gap * 1.8))
-
     clusters: list[list[int]] = [[ordered[0][1]]]
     last_value = ordered[0][0]
     for value, item_id in ordered[1:]:
-        if value - last_value > eps:
+        if value - last_value > eps_emu:
             clusters.append([item_id])
         else:
             clusters[-1].append(item_id)
@@ -71,16 +70,21 @@ def _classify_text_roles(slide: dict) -> dict[int, str]:
         title_obj, _ = max(title_candidates, key=lambda p: (p[1], -p[0]["top"]))
         roles[title_obj["shape_id"]] = "title"
 
-    # Badge: short text in top-right corner.
+    # Badge: short text PINNED to the extreme top-right corner. The right edge
+    # must sit close to the slide right edge AND the shape must be high up
+    # (within ~10% of slide height). Anything further inside is treated as a
+    # column header and left alone.
+    badge_top_max = int(height * 0.10)
+    badge_right_min = int(width * 0.82)
     for obj, sz in sized:
         if obj["shape_id"] in roles:
             continue
         right_edge = obj["left"] + obj["width"]
         if (
-            right_edge > width * 0.70
-            and obj["top"] < height * 0.20
+            right_edge > badge_right_min
+            and obj["top"] < badge_top_max
             and len(obj["text"]) <= 24
-            and obj["width"] < width * 0.35
+            and obj["width"] < width * 0.25
         ):
             roles[obj["shape_id"]] = "badge"
 
@@ -174,9 +178,11 @@ def _detect_rows_columns(slide: dict, roles: dict[int, str]) -> tuple[list[dict]
 
     by_id = {obj["shape_id"]: obj for obj in peers}
 
-    # Row clustering on `top` (vertical center actually works better, but `top` is fine for similar heights).
-    centers_top = [(obj["top"] + obj["height"] // 2, obj["shape_id"]) for obj in peers]
-    raw_row_clusters = _cluster_1d(centers_top, min_eps_emu=91440)
+    # Row clustering uses `top` (not center) with a tight fixed tolerance: shapes
+    # only count as the same row if their top edges land within ~0.08 inch of
+    # each other.
+    tops = [(obj["top"], obj["shape_id"]) for obj in peers]
+    raw_row_clusters = _cluster_1d(tops, eps_emu=80000)
     rows = []
     for row_idx, ids in enumerate(raw_row_clusters):
         if len(ids) < 2:
@@ -191,9 +197,12 @@ def _detect_rows_columns(slide: dict, roles: dict[int, str]) -> tuple[list[dict]
             }
         )
 
-    # Column clustering on `left`.
-    centers_left = [(obj["left"] + obj["width"] // 2, obj["shape_id"]) for obj in peers]
-    raw_col_clusters = _cluster_1d(centers_left, min_eps_emu=91440)
+    # Column clustering uses `left` with the same tight tolerance — shapes that
+    # actually share a left anchor (within ~0.08 inch) are a column. Centers and
+    # adaptive thresholds incorrectly merge unrelated columns when slides are
+    # densely packed.
+    lefts = [(obj["left"], obj["shape_id"]) for obj in peers]
+    raw_col_clusters = _cluster_1d(lefts, eps_emu=80000)
     cols = []
     for col_idx, ids in enumerate(raw_col_clusters):
         if len(ids) < 2:

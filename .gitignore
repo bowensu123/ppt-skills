@@ -15,3 +15,12 @@ manual-*/
 pytest-*/
 tmp*/
 .pytest-tmp*/
+gpt2-*/
+gpt2-*.pptx
+render-compare-*/
+orchestrator-run*/
+polish-output*/
+variants-run*/
+state-*/
+*.polished.pptx
+*.regen-*.pptx

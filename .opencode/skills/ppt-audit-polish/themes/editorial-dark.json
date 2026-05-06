@@ -1,24 +1,24 @@
 {
-  "name": "clean-tech",
+  "name": "editorial-dark",
   "palette": {
-    "primary": "0F62FE",
-    "primary_soft": "EAF1FF",
-    "accent": "42BE65",
-    "accent_warn": "F1C21B",
-    "text_strong": "161616",
-    "text": "393939",
-    "text_muted": "6F6F6F",
-    "background": "FFFFFF",
-    "surface": "F4F6FA",
-    "border": "DDE1E6"
+    "primary": "60A5FA",
+    "primary_soft": "1E293B",
+    "accent": "34D399",
+    "accent_warn": "FBBF24",
+    "text_strong": "F8FAFC",
+    "text": "E2E8F0",
+    "text_muted": "94A3B8",
+    "background": "0F172A",
+    "surface": "1E293B",
+    "border": "334155"
   },
   "typography": {
     "font_family": "Microsoft YaHei",
     "size_pt": {
-      "title": 28,
-      "subtitle": 14,
+      "title": 32,
+      "subtitle": 16,
       "h2": 14,
-      "body": 10.5,
+      "body": 11,
       "caption": 9,
       "badge": 9
     },
@@ -47,10 +47,11 @@
     "subtitle_gap_below_title_emu": 76200
   },
   "decoration": {
-    "card_fill_role": "background",
+    "card_fill_role": "surface",
     "card_border_role": "border",
-    "card_border_pt": 0.75,
-    "card_corner_radius_emu": 91440,
+    "card_border_pt": 0.5,
+    "card_corner_radius_ratio": 0.05,
+    "card_shadow": false,
     "badge_fill_role": "primary",
     "section_fill_role": "primary_soft",
     "connector_color_role": "text_muted",
