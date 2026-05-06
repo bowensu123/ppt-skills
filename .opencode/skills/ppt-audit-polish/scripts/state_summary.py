@@ -153,6 +153,10 @@ def summarize(
     all_issues.sort(key=lambda i: (-SEVERITY_RANK.get(i["severity"], 0), i["category"]))
 
     # Render the slide for the agent to look at.
+    # We emit BOTH a vanilla render (clean visual) AND an annotated render
+    # (shape_id labels overlaid). The agent uses the vanilla one to judge
+    # visual quality and the annotated one to map "the icon I see in the
+    # wrong card" to the exact shape_id it needs in mutate calls.
     render_info: dict = {"status": "skipped" if skip_render else "pending"}
     if not skip_render:
         images_dir = work_dir / "render"
@@ -171,6 +175,19 @@ def summarize(
                 render_info = {"status": "failed", "reason": mf.get("reason", "unknown")}
         except subprocess.CalledProcessError as exc:
             render_info = {"status": "failed", "reason": str(exc)[:200]}
+
+        # Annotated render — best-effort. Failures must not break the pipeline.
+        if render_info.get("status") == "ok":
+            try:
+                annotated_dir = work_dir / "annotated"
+                _run("annotated_render.py", "--in", str(input_path),
+                     "--output-dir", str(annotated_dir))
+                ann_summary = json.loads((annotated_dir / "annotated-summary.json").read_text(encoding="utf-8"))
+                if ann_summary.get("status") == "ok" and ann_summary.get("annotated"):
+                    render_info["annotated_png"] = ann_summary["annotated"][0]["annotated"]
+                    render_info["color_legend"] = ann_summary["color_legend"]
+            except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError):
+                pass
 
     # Optional: diff vs previous iteration (geometry + scores).
     diff_info: dict | None = None

@@ -48,6 +48,49 @@ elif baseline_score < 25 AND (density_score < 30 OR hierarchy_score < 50):
     → If user says no: Path A (do what we can)
 ```
 
+## Vision-first analysis (recommended over rule suggestions)
+
+Rule-based detection (`score_layout`) flags issues from geometry alone — it
+can't see whether "the icon visually belongs to card 4 even though its
+bbox-center is in card 3". For damaged decks, **trust your eyes over the
+hint list**.
+
+`state_summary.py` emits TWO renders every iteration:
+
+1. `render/slide-001.png` — clean visual (judge whether it looks right)
+2. `annotated/slide-001.annotated.png` — the same slide with each shape's
+   `#shape_id` and kind-color overlay; use this to translate "the icon I
+   see misplaced" → the exact `shape_id` you pass to mutate.py
+
+### Vision-driven decision template
+
+```
+1. Read render/slide-001.png             — does it look right?
+2. If something looks wrong:
+   3. Read annotated/slide-001.annotated.png  — find the shape_id of the bad element
+   4. Pick a model-friendly mutate op (placement category):
+        place-near                 → "put icon NEAR this card's top-left"
+        mirror-peer-position       → "put icon at the SAME offset as a sibling card has"
+        move-to-card               → "drop shape into card N at fractional rel pos"
+   5. Run it. Re-render. Look again.
+   6. Repeat or revert based on what you see, NOT the rule scores.
+```
+
+### When rule suggestions are reliable
+
+- `boundary-overflow` (geometry is unambiguous)
+- `shape-overlap` between non-card peers
+- Trivially low-contrast text where peer wins WCAG by a wide margin
+
+### When to override rule suggestions with vision
+
+- Anything involving "this is in the wrong card" — rules use bbox-center
+  containment which fails when source has oversized cards
+- `repair-peer-cards` action with >5 orphan_relocations — fall back to
+  `--scope safe` and place shapes individually using mirror-peer-position
+- "Should this text be in card 3 or 4?" — bbox heuristics flip; your
+  visual reasoning is authoritative
+
 ## Path A: Polish (one mutate per iteration)
 
 ### One key primitive: `state_summary.py`

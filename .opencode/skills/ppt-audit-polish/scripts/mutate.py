@@ -791,6 +791,135 @@ def cmd_add_text(args):
 
 
 # ============================================================
+#  MODEL-FRIENDLY PLACEMENT OPS
+#
+#  These ops let an OpenCode agent move shapes by REFERRING to other
+#  shapes/cards instead of computing EMU coordinates. Agents are weak at
+#  EMU arithmetic but strong at "this icon belongs in card #5 just like
+#  the icon in card #1".
+# ============================================================
+
+@op("placement", "Move shape NEAR another shape (reference). Anchor: above|below|left-of|right-of|inside-top-left|inside-center|inside-bottom-right.",
+    "mutate place-near --in X --out Y --shape-id 38 --reference-shape-id 47 --anchor inside-top-left --gap-emu 91440")
+def cmd_place_near(args):
+    """Place shape `--shape-id` near `--reference-shape-id` using a named anchor."""
+    prs = _open(args.in_path)
+    by_id = _shapes_by_id(prs)
+    sid = int(args.shape_id)
+    ref_sid = int(args.reference_shape_id)
+    if sid not in by_id:
+        raise SystemExit(f"error: shape_id {sid} not found")
+    if ref_sid not in by_id:
+        raise SystemExit(f"error: reference shape_id {ref_sid} not found")
+    _, shape = by_id[sid]
+    _, ref = by_id[ref_sid]
+
+    rL, rT = int(ref.left), int(ref.top)
+    rW, rH = int(ref.width), int(ref.height)
+    sW, sH = int(shape.width), int(shape.height)
+    gap = int(getattr(args, "gap_emu", 0) or 0)
+    anchor = args.anchor
+
+    if anchor == "above":
+        new_left = rL + (rW - sW) // 2
+        new_top = rT - sH - gap
+    elif anchor == "below":
+        new_left = rL + (rW - sW) // 2
+        new_top = rT + rH + gap
+    elif anchor == "left-of":
+        new_left = rL - sW - gap
+        new_top = rT + (rH - sH) // 2
+    elif anchor == "right-of":
+        new_left = rL + rW + gap
+        new_top = rT + (rH - sH) // 2
+    elif anchor == "inside-top-left":
+        new_left = rL + gap
+        new_top = rT + gap
+    elif anchor == "inside-top-right":
+        new_left = rL + rW - sW - gap
+        new_top = rT + gap
+    elif anchor == "inside-center":
+        new_left = rL + (rW - sW) // 2
+        new_top = rT + (rH - sH) // 2
+    elif anchor == "inside-bottom-left":
+        new_left = rL + gap
+        new_top = rT + rH - sH - gap
+    elif anchor == "inside-bottom-right":
+        new_left = rL + rW - sW - gap
+        new_top = rT + rH - sH - gap
+    else:
+        raise SystemExit(f"error: unsupported anchor {anchor!r}")
+
+    change = set_position(shape, left=new_left, top=new_top)
+    _save(prs, args.out_path)
+    LOG.event("place-near", shape_id=sid, reference=ref_sid, anchor=anchor, change=change)
+    _emit({"op": "place-near", "shape_id": sid, "reference": ref_sid, "anchor": anchor, "change": change})
+    return 0
+
+
+@op("placement", "Mirror a peer's relative position: place shape X at the same offset within its container that --peer-shape-id has within --peer-container-id.",
+    "mutate mirror-peer-position --in X --out Y --shape-id 38 --target-container-id 49 --peer-shape-id 53 --peer-container-id 64")
+def cmd_mirror_peer_position(args):
+    """Place shape so that its offset relative to target_container matches
+    peer_shape's offset relative to peer_container. Useful when one card has
+    a misplaced icon and you want to copy a sibling card's icon position."""
+    prs = _open(args.in_path)
+    by_id = _shapes_by_id(prs)
+    sid = int(args.shape_id)
+    target_cid = int(args.target_container_id)
+    peer_sid = int(args.peer_shape_id)
+    peer_cid = int(args.peer_container_id)
+    for k, name in ((sid, "shape_id"), (target_cid, "target_container_id"),
+                    (peer_sid, "peer_shape_id"), (peer_cid, "peer_container_id")):
+        if k not in by_id:
+            raise SystemExit(f"error: {name}={k} not found")
+    _, shape = by_id[sid]
+    _, target_card = by_id[target_cid]
+    _, peer_shape = by_id[peer_sid]
+    _, peer_card = by_id[peer_cid]
+
+    rel_x = int(peer_shape.left) - int(peer_card.left)
+    rel_y = int(peer_shape.top) - int(peer_card.top)
+    new_left = int(target_card.left) + rel_x
+    new_top = int(target_card.top) + rel_y
+    change = set_position(shape, left=new_left, top=new_top)
+    _save(prs, args.out_path)
+    LOG.event("mirror-peer-position", shape_id=sid, target_card=target_cid,
+              peer_shape=peer_sid, peer_card=peer_cid, change=change)
+    _emit({"op": "mirror-peer-position", "shape_id": sid, "target_card": target_cid,
+           "peer_shape": peer_sid, "peer_card": peer_cid, "change": change})
+    return 0
+
+
+@op("placement", "Move shape into the bbox of another shape, optionally with a relative offset (0-1 fractional).",
+    "mutate move-to-card --in X --out Y --shape-id 38 --container-id 49 --rel-x 0.15 --rel-y 0.10")
+def cmd_move_to_card(args):
+    """Move shape into a target container at fractional rel position."""
+    prs = _open(args.in_path)
+    by_id = _shapes_by_id(prs)
+    sid = int(args.shape_id)
+    cid = int(args.container_id)
+    if sid not in by_id:
+        raise SystemExit(f"error: shape_id {sid} not found")
+    if cid not in by_id:
+        raise SystemExit(f"error: container_id {cid} not found")
+    _, shape = by_id[sid]
+    _, card = by_id[cid]
+
+    rx = float(getattr(args, "rel_x", None) or 0.10)
+    ry = float(getattr(args, "rel_y", None) or 0.10)
+    if not (0.0 <= rx <= 1.0 and 0.0 <= ry <= 1.0):
+        raise SystemExit("error: --rel-x and --rel-y must be in [0, 1]")
+    new_left = int(card.left) + int(int(card.width) * rx)
+    new_top = int(card.top) + int(int(card.height) * ry)
+    change = set_position(shape, left=new_left, top=new_top)
+    _save(prs, args.out_path)
+    LOG.event("move-to-card", shape_id=sid, container=cid, rel=(rx, ry), change=change)
+    _emit({"op": "move-to-card", "shape_id": sid, "container": cid, "rel": [rx, ry], "change": change})
+    return 0
+
+
+# ============================================================
 #  CARD REPAIR (peer-card outlier detection)
 # ============================================================
 
@@ -972,6 +1101,31 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("add-rect", help="add rectangle"); _add_io(p); p.add_argument("--slide", type=int, required=True); p.add_argument("--left", type=int, required=True); p.add_argument("--top", type=int, required=True); p.add_argument("--width", type=int, required=True); p.add_argument("--height", type=int, required=True); p.add_argument("--fill"); p.add_argument("--line"); p.add_argument("--line-width-pt", type=float); p.set_defaults(func=cmd_add_rect)
     p = sub.add_parser("add-line", help="add line connector"); _add_io(p); p.add_argument("--slide", type=int, required=True); p.add_argument("--x1", type=int, required=True); p.add_argument("--y1", type=int, required=True); p.add_argument("--x2", type=int, required=True); p.add_argument("--y2", type=int, required=True); p.add_argument("--color"); p.add_argument("--width-pt", type=float); p.set_defaults(func=cmd_add_line)
     p = sub.add_parser("add-text", help="add text box"); _add_io(p); p.add_argument("--slide", type=int, required=True); p.add_argument("--left", type=int, required=True); p.add_argument("--top", type=int, required=True); p.add_argument("--width", type=int, required=True); p.add_argument("--height", type=int, required=True); p.add_argument("--content", required=True); p.add_argument("--role"); _add_theme(p); p.set_defaults(func=cmd_add_text)
+
+    # Placement (model-friendly)
+    p = sub.add_parser("place-near", help="move shape near another (anchor-based)")
+    _add_io(p); p.add_argument("--shape-id", type=int, required=True)
+    p.add_argument("--reference-shape-id", type=int, required=True)
+    p.add_argument("--anchor", required=True,
+                   choices=["above", "below", "left-of", "right-of",
+                            "inside-top-left", "inside-top-right", "inside-center",
+                            "inside-bottom-left", "inside-bottom-right"])
+    p.add_argument("--gap-emu", type=int, default=0)
+    p.set_defaults(func=cmd_place_near)
+
+    p = sub.add_parser("mirror-peer-position", help="copy a peer's relative offset within its card")
+    _add_io(p); p.add_argument("--shape-id", type=int, required=True)
+    p.add_argument("--target-container-id", type=int, required=True)
+    p.add_argument("--peer-shape-id", type=int, required=True)
+    p.add_argument("--peer-container-id", type=int, required=True)
+    p.set_defaults(func=cmd_mirror_peer_position)
+
+    p = sub.add_parser("move-to-card", help="drop shape into another container at fractional rel position")
+    _add_io(p); p.add_argument("--shape-id", type=int, required=True)
+    p.add_argument("--container-id", type=int, required=True)
+    p.add_argument("--rel-x", type=float, default=0.10)
+    p.add_argument("--rel-y", type=float, default=0.10)
+    p.set_defaults(func=cmd_move_to_card)
 
     # Repair
     p = sub.add_parser("repair-peer-cards", help="auto-fix peer-card outliers"); _add_io(p); p.add_argument("--scope", choices=["all", "safe", "no-orphans"], default="all"); p.set_defaults(func=cmd_repair_peer_cards)
