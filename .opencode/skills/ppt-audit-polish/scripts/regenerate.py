@@ -46,11 +46,32 @@ def regenerate(
     template_name: str | None = None,
     theme_path: Path | None = None,
     auto: bool = False,
+    skip_repair: bool = False,
 ) -> dict:
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Extract content.
-    _run("extract_content.py", "--in", str(input_path), "--work-dir", str(work_dir))
+    # 0. Pre-repair: structural bugs (oversized peer-card boxes, misplaced
+    # children) confuse content extraction because shapes that visually
+    # belong to card N may sit inside card N-1's bloated bbox. Run
+    # repair-peer-cards into a temp copy first; the user's input is never
+    # modified.
+    extract_source = input_path
+    if not skip_repair:
+        repaired = work_dir / "_pre-repair.pptx"
+        try:
+            subprocess.run(
+                [sys.executable, str(SCRIPT_DIR / "mutate.py"),
+                 "repair-peer-cards", "--in", str(input_path), "--out", str(repaired)],
+                check=True, capture_output=True, text=True,
+            )
+            extract_source = repaired
+        except subprocess.CalledProcessError as exc:
+            # Repair failure is non-fatal — fall back to raw input.
+            (work_dir / "_pre-repair-error.txt").write_text(
+                exc.stderr or str(exc), encoding="utf-8")
+
+    # 1. Extract content (from repaired copy so card boundaries are correct).
+    _run("extract_content.py", "--in", str(extract_source), "--work-dir", str(work_dir))
     content = json.loads((work_dir / "content.json").read_text(encoding="utf-8"))
 
     item_count = len(content.get("items") or [])
@@ -106,6 +127,9 @@ def main() -> int:
     parser.add_argument("--auto", action="store_true",
                         help="pick template automatically from item count")
     parser.add_argument("--theme", type=Path)
+    parser.add_argument("--skip-repair", action="store_true",
+                        help="skip the pre-repair pass (faster but may miss content "
+                             "if the input has oversized peer-card outliers)")
     args = parser.parse_args()
 
     if not args.template and not args.auto:
@@ -117,6 +141,7 @@ def main() -> int:
         template_name=args.template,
         theme_path=args.theme,
         auto=args.auto,
+        skip_repair=args.skip_repair,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0

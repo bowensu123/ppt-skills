@@ -445,13 +445,15 @@ def _suggest_displaced_children(cards: list[dict], all_objects: list[dict]) -> l
     return fixes
 
 
-def diagnose_repair(slide_inspection: dict) -> dict:
-    """Build a repair plan for one slide. Returns:
-        {
-            "rows": [{"cards": [...], "card_box_fixes": [...],
-                       "header_strip_fixes": [...],
-                       "orphan_relocations": [...]}, ...]
-        }
+def diagnose_repair(slide_inspection: dict, scope: str = "all") -> dict:
+    """Build a repair plan for one slide.
+
+    scope:
+      'all'           — every fix kind (default; matches previous behavior)
+      'safe'          — only card-box-fix + header-strip-fix
+                        (skips orphan + displaced relocation, which can
+                        misfire on heavily damaged decks)
+      'no-orphans'    — everything except orphan-relocation
     """
     # Work on a deep-copied object list so we can apply fixes virtually
     # before running later detection passes (otherwise an oversized header
@@ -483,12 +485,21 @@ def diagnose_repair(slide_inspection: dict) -> dict:
         # After in-memory updates, recompute card list with updated geometry.
         updated_cards = [obj_by_id[c["shape_id"]] for c in cards]
 
+        orphan_relocs = []
+        displaced_relocs = []
+        if scope == "all":
+            orphan_relocs = _suggest_orphan_relocation(updated_cards, objs)
+            displaced_relocs = _suggest_displaced_children(updated_cards, objs)
+        elif scope == "no-orphans":
+            displaced_relocs = _suggest_displaced_children(updated_cards, objs)
+        # 'safe' produces only box + header fixes.
+
         out_rows.append({
             "card_shape_ids": [c["shape_id"] for c in cards],
             "card_box_fixes": box_fixes,
             "header_strip_fixes": header_fixes,
-            "orphan_relocations": _suggest_orphan_relocation(updated_cards, objs),
-            "displaced_relocations": _suggest_displaced_children(updated_cards, objs),
+            "orphan_relocations": orphan_relocs,
+            "displaced_relocations": displaced_relocs,
         })
     return {"rows": out_rows}
 

@@ -227,8 +227,18 @@ Every op takes `--in <pptx> --out <pptx>` and emits one JSON record on stdout.
 
 **Fix peer-card outliers (oversized header strips, misplaced inner shapes, asymmetric card boxes)**
 ```bash
+# Moderately-damaged decks (typical case): applies all four fix kinds.
 python scripts/mutate.py repair-peer-cards --in deck.pptx --out v1.pptx
+
+# HEAVILY-DAMAGED decks (>5 orphan_relocations in default-run output): use safe.
+# Only the well-constrained card-box-fix and header-strip-fix run; the
+# aggressive orphan/displaced relocators (which cascade incorrectly when
+# many shapes already sit outside their cards) are skipped.
+python scripts/mutate.py repair-peer-cards --in deck.pptx --out v1.pptx --scope safe
 ```
+
+When the agent loop's first run reports many orphan_relocations and the
+visual gets *worse* on inspection, REVERT and re-run with `--scope safe`.
 
 **Send all overlapping arrows behind cards**
 ```bash

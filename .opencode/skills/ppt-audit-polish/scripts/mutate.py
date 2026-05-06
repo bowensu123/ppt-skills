@@ -794,16 +794,24 @@ def cmd_add_text(args):
 #  CARD REPAIR (peer-card outlier detection)
 # ============================================================
 
-@op("repair", "Detect and fix peer-card outliers: oversized cards, wide header strips, misplaced inner shapes.",
-    "mutate repair-peer-cards --in X --out Y")
+@op("repair", "Detect and fix peer-card outliers. --scope safe (only box+header) | no-orphans | all (default).",
+    "mutate repair-peer-cards --in X --out Y [--scope safe]")
 def cmd_repair_peer_cards(args):
-    """Use _card_repair to diagnose and apply fixes on every slide."""
+    """Use _card_repair to diagnose and apply fixes on every slide.
+
+    For heavily-damaged decks where orphan/displaced relocations cascade
+    into wrong assignments, pass --scope safe to apply only the well-
+    constrained box-fix and header-strip-fix.
+    """
     import subprocess, tempfile
     from pathlib import Path as _P
 
+    scope = getattr(args, "scope", None) or "all"
+    if scope not in ("all", "safe", "no-orphans"):
+        raise SystemExit(f"error: --scope must be all|safe|no-orphans, got {scope!r}")
+
     prs = _open(args.in_path)
     script_dir = _P(__file__).resolve().parent
-    # Build inspection on the fly via inspect_ppt subprocess (cheap; reuses the canonical extractor).
     with tempfile.TemporaryDirectory() as tmp:
         ins = _P(tmp) / "ins.json"
         subprocess.run(
@@ -817,7 +825,7 @@ def cmd_repair_peer_cards(args):
     actions: list[dict] = []
     summary_rows = []
     for slide_idx, (slide, slide_ins) in enumerate(zip(prs.slides, inspection["slides"]), start=1):
-        plan = diagnose_repair(slide_ins)
+        plan = diagnose_repair(slide_ins, scope=scope)
         apply_repair(slide, slide_ins, plan, actions, slide_idx)
         for row in plan["rows"]:
             summary_rows.append({
@@ -826,11 +834,12 @@ def cmd_repair_peer_cards(args):
                 "box_fixes": len(row["card_box_fixes"]),
                 "header_fixes": len(row["header_strip_fixes"]),
                 "orphan_relocations": len(row["orphan_relocations"]),
+                "displaced_relocations": len(row.get("displaced_relocations", [])),
             })
 
     _save(prs, args.out_path)
-    LOG.event("repair-peer-cards", actions=len(actions), summary=summary_rows)
-    _emit({"op": "repair-peer-cards", "actions_applied": len(actions), "summary": summary_rows, "actions": actions})
+    LOG.event("repair-peer-cards", actions=len(actions), summary=summary_rows, scope=scope)
+    _emit({"op": "repair-peer-cards", "scope": scope, "actions_applied": len(actions), "summary": summary_rows, "actions": actions})
     return 0
 
 
@@ -965,7 +974,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("add-text", help="add text box"); _add_io(p); p.add_argument("--slide", type=int, required=True); p.add_argument("--left", type=int, required=True); p.add_argument("--top", type=int, required=True); p.add_argument("--width", type=int, required=True); p.add_argument("--height", type=int, required=True); p.add_argument("--content", required=True); p.add_argument("--role"); _add_theme(p); p.set_defaults(func=cmd_add_text)
 
     # Repair
-    p = sub.add_parser("repair-peer-cards", help="auto-fix peer-card outliers"); _add_io(p); p.set_defaults(func=cmd_repair_peer_cards)
+    p = sub.add_parser("repair-peer-cards", help="auto-fix peer-card outliers"); _add_io(p); p.add_argument("--scope", choices=["all", "safe", "no-orphans"], default="all"); p.set_defaults(func=cmd_repair_peer_cards)
 
     # Connector
     p = sub.add_parser("style-connector", help="theme connector style"); _add_io(p); _add_targets(p, allow_multi=False); _add_theme(p); p.set_defaults(func=cmd_style_connector)
