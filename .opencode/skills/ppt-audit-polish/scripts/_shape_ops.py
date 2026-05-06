@@ -256,15 +256,60 @@ def _iter_runs(shape):
             yield "paragraph", paragraph.font, paragraph
 
 
-def set_font_family(shape, family: str) -> dict | None:
+def _set_run_eastasia_typeface(run, family: str) -> None:
+    """python-pptx's font.name only writes <a:latin>. For Chinese / Japanese /
+    Korean text PowerPoint actually picks the typeface from <a:ea>. Ignoring
+    East Asian leaves CJK runs falling back to whatever PowerPoint chooses.
+    """
+    try:
+        rPr = run._r.get_or_add_rPr()
+        ea_tag = "{http://schemas.openxmlformats.org/drawingml/2006/main}ea"
+        ea = rPr.find(ea_tag)
+        if ea is None:
+            from lxml import etree
+            ea = etree.SubElement(rPr, ea_tag)
+        ea.set("typeface", family)
+    except (AttributeError, ValueError):
+        pass
+
+
+def _set_paragraph_eastasia_typeface(paragraph, family: str) -> None:
+    """Same as _set_run_eastasia_typeface but on the paragraph defaults."""
+    try:
+        pPr = paragraph._pPr
+        if pPr is None:
+            return
+        ea_tag = "{http://schemas.openxmlformats.org/drawingml/2006/main}ea"
+        defRPr = pPr.find("{http://schemas.openxmlformats.org/drawingml/2006/main}defRPr")
+        if defRPr is None:
+            return
+        ea = defRPr.find(ea_tag)
+        if ea is None:
+            from lxml import etree
+            ea = etree.SubElement(defRPr, ea_tag)
+        ea.set("typeface", family)
+    except (AttributeError, ValueError):
+        pass
+
+
+def set_font_family(shape, family: str, include_eastasia: bool = True) -> dict | None:
+    """Set the typeface on every run / paragraph default in `shape`.
+
+    By default ALSO writes <a:ea typeface=...> so CJK characters render with
+    the same family. Pass include_eastasia=False to keep Latin-only behavior.
+    """
     n = 0
-    for kind, target, _para in _iter_runs(shape):
+    for kind, target, paragraph in _iter_runs(shape):
         if kind == "run":
             target.font.name = family
+            if include_eastasia:
+                _set_run_eastasia_typeface(target, family)
         else:
             target.name = family
+            if include_eastasia:
+                _set_paragraph_eastasia_typeface(paragraph, family)
         n += 1
-    return {"font_family": family, "run_count": n} if n > 0 else None
+    return {"font_family": family, "run_count": n, "eastasia": include_eastasia} if n > 0 else None
 
 
 def set_font_size(shape, size_pt: float) -> dict | None:

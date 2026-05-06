@@ -533,7 +533,37 @@ def cmd_all_connectors_to_back(args):
 #  TEXT OPS
 # ============================================================
 
-@op("text", "Set font family for one shape, all shapes (--scope all), or a role (--scope role:title).",
+@op("text", "Force a single font family on every text shape in the deck (Latin + East Asian; recurses into groups). Default family: 'Microsoft YaHei'.",
+    "mutate unify-font --in X --out Y [--family \"Microsoft YaHei\"]")
+def cmd_unify_font(args):
+    family = getattr(args, "family", None) or "Microsoft YaHei"
+    prs = _open(args.in_path)
+    affected: list[int] = []
+    skipped_groups = 0
+
+    def _walk_text_shapes(container):
+        """Yield every text-bearing shape including those inside groups."""
+        from pptx.enum.shapes import MSO_SHAPE_TYPE
+        for sp in container.shapes:
+            st = getattr(sp, "shape_type", None)
+            if st == MSO_SHAPE_TYPE.GROUP:
+                yield from _walk_text_shapes(sp)
+            elif getattr(sp, "has_text_frame", False):
+                yield sp
+
+    for slide in prs.slides:
+        for shape in _walk_text_shapes(slide):
+            change = set_font_family(shape, family, include_eastasia=True)
+            if change:
+                affected.append(int(getattr(shape, "shape_id", 0) or 0))
+
+    _save(prs, args.out_path)
+    LOG.event("unify-font", family=family, count=len(affected))
+    _emit({"op": "unify-font", "family": family, "affected_count": len(affected), "shape_ids": affected})
+    return 0
+
+
+@op("text", "Set font family for one shape, all shapes (--scope all), or a role (--scope role:title). For deck-wide CJK use `unify-font` which is simpler.",
     "mutate set-font-family --in X --out Y --scope all --family \"Microsoft YaHei\"")
 def cmd_set_font_family(args):
     prs = _open(args.in_path)
@@ -1083,6 +1113,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("all-connectors-to-back", help="sweep all connectors to back"); _add_io(p); p.set_defaults(func=cmd_all_connectors_to_back)
 
     # Text
+    p = sub.add_parser("unify-font", help="force one font family deck-wide (default Microsoft YaHei, Latin + East Asian)")
+    _add_io(p); p.add_argument("--family", default="Microsoft YaHei")
+    p.set_defaults(func=cmd_unify_font)
     p = sub.add_parser("set-font-family", help="font family"); _add_io(p); _add_targets(p); p.add_argument("--family", required=True); p.add_argument("--scope", choices=["all"]); p.set_defaults(func=cmd_set_font_family)
     p = sub.add_parser("set-font-size", help="font size in pt"); _add_io(p); _add_targets(p, allow_multi=False); p.add_argument("--size-pt", type=float, required=True); p.set_defaults(func=cmd_set_font_size)
     p = sub.add_parser("set-font-bold", help="toggle bold"); _add_io(p); _add_targets(p, allow_multi=False); p.add_argument("--bold", type=_str_to_bool, required=True); p.set_defaults(func=cmd_set_font_bold)
