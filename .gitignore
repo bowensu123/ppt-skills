@@ -1,0 +1,17 @@
+.DS_Store
+.claude/
+**/.pytest_cache/
+.venv/
+**/__pycache__/
+**/*.egg-info/
+**/pytest-cache-files*/
+tests/tmp/
+
+# Local verification outputs
+audit-output*/
+fix-output*/
+fixture-output*/
+manual-*/
+pytest-*/
+tmp*/
+.pytest-tmp*/
