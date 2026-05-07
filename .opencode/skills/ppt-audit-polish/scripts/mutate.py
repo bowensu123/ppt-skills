@@ -1034,19 +1034,19 @@ def cmd_repair_grid(args):
     return 0
 
 
-@op("polish",
-    "Composition / proportion auditor. Detects per-card visual-balance issues "
-    "(icon too small or too big relative to card area, card too empty, top-"
-    "heavy composition, icon-vs-title size mismatch) and auto-applies safe "
-    "fixes (resize icon to ~12% of card area, scale icon-pt to 3x title-pt). "
-    "Use after polish-business + refine-contrast for full visual polish.",
-    "mutate refine-proportions --in X --out Y")
-def cmd_refine_proportions(args):
+@op("audit",
+    "Pure composition descriptor — emits per-card geometry, visual-weight, "
+    "alignment-grid facts the agent reads alongside DESIGN_PRINCIPLES.md "
+    "to JUDGE what to change. No hardcoded thresholds, no auto-fixes. "
+    "The agent applies fixes via existing mutate ops based on its own "
+    "visual judgment of the rendered slide.",
+    "mutate describe-composition --in X --out composition.json")
+def cmd_describe_composition(args):
+    """Read-only descriptor; doesn't modify the deck."""
     import subprocess, tempfile
     from pathlib import Path as _P
 
     script_dir = _P(__file__).resolve().parent
-    prs = _open(args.in_path)
     with tempfile.TemporaryDirectory() as tmp:
         ins_path = _P(tmp) / "ins.json"
         subprocess.run(
@@ -1056,27 +1056,24 @@ def cmd_refine_proportions(args):
         )
         inspection = json.loads(ins_path.read_text(encoding="utf-8"))
 
-    from _proportion_audit import (
-        auto_apply_proportion_fixes,
-        detect_proportion_issues,
-    )
-    # Surface the audit BEFORE applying so the agent can read what
-    # was detected (useful for iteration / agent-driven flows).
-    detected = []
+    from _proportion_audit import describe_composition
+    descriptions = []
     for slide in inspection.get("slides", []):
-        detected.extend(detect_proportion_issues(slide))
-
-    result = auto_apply_proportion_fixes(prs, inspection.get("slides", []))
-    _save(prs, args.out_path)
-    LOG.event("refine-proportions",
-              detected=len(detected), applied=result["applied"])
-    _emit({
-        "op": "refine-proportions",
-        "detected": len(detected),
-        "applied": result["applied"],
-        "issues": detected,
-        "actions": result["actions"],
-    })
+        descriptions.append({
+            "slide_index": slide.get("slide_index"),
+            **describe_composition(slide),
+        })
+    out_path = Path(args.output) if args.output else None
+    payload = {
+        "op": "describe-composition",
+        "input": str(args.in_path),
+        "slide_count": len(descriptions),
+        "slides": descriptions,
+    }
+    if out_path:
+        out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
+                             encoding="utf-8")
+    _emit(payload)
     return 0
 
 
@@ -1471,9 +1468,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--theme", type=Path, default=None,
                    help="theme JSON for palette options")
     p.set_defaults(func=cmd_refine_contrast)
-    p = sub.add_parser("refine-proportions", help="visual proportion / composition auditor + auto-fix")
-    _add_io(p)
-    p.set_defaults(func=cmd_refine_proportions)
+    p = sub.add_parser("describe-composition",
+                        help="emit per-card composition descriptor (read-only)")
+    p.add_argument("--in", dest="in_path", required=True, type=Path)
+    p.add_argument("--output", "-o", type=Path, default=None,
+                   help="write JSON to this file in addition to stdout")
+    p.set_defaults(func=cmd_describe_composition)
 
     # Connector
     p = sub.add_parser("style-connector", help="theme connector style"); _add_io(p); _add_targets(p, allow_multi=False); _add_theme(p); p.set_defaults(func=cmd_style_connector)

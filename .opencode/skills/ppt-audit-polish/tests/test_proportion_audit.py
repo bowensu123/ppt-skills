@@ -1,4 +1,6 @@
-"""Tests for _proportion_audit.py — visual composition audits."""
+"""Tests for _proportion_audit.py — pure composition descriptor (no
+hardcoded thresholds, no auto-fix; agent reads the output + design
+principles + render and judges)."""
 from __future__ import annotations
 
 import sys
@@ -10,17 +12,15 @@ SKILL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_ROOT / "scripts"))
 
 from _proportion_audit import (
-    ICON_AREA_RATIO_MAX,
-    ICON_AREA_RATIO_MIN,
-    ICON_AREA_RATIO_TARGET,
+    _classify_role,
+    _icon_visible_area,
     _is_card,
-    _is_icon_like,
     _max_font_pt,
-    detect_proportion_issues,
+    describe_composition,
 )
 
 
-# ---- shape classification ----
+# ---- card identification ----
 
 def test_is_card_yes():
     obj = {"kind": "container", "width": 5000000, "height": 3000000,
@@ -34,172 +34,186 @@ def test_is_card_no_too_small():
     assert not _is_card(obj)
 
 
-def test_is_icon_like_picture():
-    """Square-ish picture = icon."""
-    assert _is_icon_like({"kind": "picture", "width": 500000, "height": 500000})
+def test_is_card_filters_slide_background():
+    """Container covering > 80% of slide area is slide-bg, not a card."""
+    obj = {"kind": "container", "width": 12192000, "height": 6858000,
+           "fill_hex": "0F0F0F", "anomalous": False}
+    assert not _is_card(obj, slide_w=12192000, slide_h=6858000)
 
 
-def test_is_icon_like_picture_wide_bar_no():
-    """Wide bar (aspect > 2.5) is NOT an icon, even if it's a picture."""
-    assert not _is_icon_like(
-        {"kind": "picture", "width": 5000000, "height": 100000},
-    )
+def test_is_card_no_fill_skipped():
+    obj = {"kind": "container", "width": 5000000, "height": 3000000,
+           "fill_hex": None, "anomalous": False}
+    assert not _is_card(obj)
 
 
-def test_is_icon_like_emoji_text():
-    """Single emoji char with big font in roughly-square bbox = icon."""
-    obj = {"kind": "text", "text": "💬",
-           "width": 600000, "height": 600000,
-           "font_sizes": [48 * 12700]}  # 48pt
-    assert _is_icon_like(obj)
+# ---- role classification ----
+
+def test_classify_role_picture_square_is_icon():
+    card = {"left": 0, "top": 0, "width": 5000000, "height": 3000000}
+    child = {"kind": "picture", "width": 500000, "height": 500000}
+    assert _classify_role(child, card) == "icon"
 
 
-def test_is_icon_like_normal_text_no():
-    obj = {"kind": "text", "text": "This is a long description",
-           "width": 4000000, "height": 200000,
-           "font_sizes": [12 * 12700]}
-    assert not _is_icon_like(obj)
+def test_classify_role_picture_wide_bar_not_icon():
+    card = {"left": 0, "top": 0, "width": 5000000, "height": 3000000}
+    child = {"kind": "picture", "width": 4000000, "height": 200000}
+    assert _classify_role(child, card) == "image"
 
 
-def test_is_icon_like_short_but_small_font_no():
-    """Short text with small font ≠ icon (could be a label)."""
-    obj = {"kind": "text", "text": "OK",
-           "width": 200000, "height": 200000,
-           "font_sizes": [10 * 12700]}
-    assert not _is_icon_like(obj)
+def test_classify_role_emoji_text_is_icon():
+    card = {"left": 0, "top": 0, "width": 5000000, "height": 3000000}
+    child = {"kind": "text", "text": "💬",
+             "width": 600000, "height": 600000,
+             "font_sizes": [80 * 12700]}
+    assert _classify_role(child, card) == "icon"
 
 
-# ---- icon undersized detection ----
-
-def test_detect_icon_undersized():
-    """Tiny icon in big card → flag + resize argv."""
-    card = {"shape_id": 1, "kind": "container",
-            "left": 0, "top": 0, "width": 5000000, "height": 3000000,
-            "fill_hex": "111827", "anomalous": False}
-    icon = {"shape_id": 2, "kind": "picture",
-            "left": 2400000, "top": 1400000,
-            "width": 200000, "height": 200000,
-            "anomalous": False}
-    slide = {"objects": [card, icon]}
-    issues = detect_proportion_issues(slide)
-    underflows = [i for i in issues if i["category"] == "icon-undersized"]
-    assert len(underflows) == 1
-    assert underflows[0]["shape_id"] == 2
-    argv = underflows[0]["suggested_argv"]
-    assert argv[0] == "resize"
-    new_w = int(argv[argv.index("--width") + 1])
-    # Target 12% of 15M EMU² area = 1.8M EMU² → side ~1.34M EMU
-    assert new_w > 1000000   # significantly bigger than 200000
+def test_classify_role_title_text():
+    card = {"left": 0, "top": 0, "width": 5000000, "height": 3000000}
+    child = {"kind": "text", "text": "Section Header",
+             "width": 4000000, "height": 400000,
+             "font_sizes": [24 * 12700]}
+    assert _classify_role(child, card) == "title"
 
 
-def test_detect_icon_oversized():
-    """Huge icon eating the card → flag + resize argv to shrink."""
-    card = {"shape_id": 1, "kind": "container",
-            "left": 0, "top": 0, "width": 5000000, "height": 3000000,
-            "fill_hex": "111827", "anomalous": False}
-    icon = {"shape_id": 2, "kind": "picture",
-            "left": 200000, "top": 200000,
-            "width": 4000000, "height": 2500000,   # 67% of card
-            "anomalous": False}
-    slide = {"objects": [card, icon]}
-    issues = detect_proportion_issues(slide)
-    overflows = [i for i in issues if i["category"] == "icon-oversized"]
-    assert len(overflows) == 1
-    argv = overflows[0]["suggested_argv"]
-    assert argv[0] == "resize"
-    new_w = int(argv[argv.index("--width") + 1])
-    assert new_w < 4000000   # smaller than current
+def test_classify_role_body_text():
+    card = {"left": 0, "top": 0, "width": 5000000, "height": 3000000}
+    child = {"kind": "text", "text": "Description text body line",
+             "width": 4000000, "height": 400000,
+             "font_sizes": [11 * 12700]}
+    assert _classify_role(child, card) == "body"
 
 
-# ---- card too empty ----
-
-def test_detect_card_too_empty():
-    """Card with content occupying < 45% area → too empty."""
-    card = {"shape_id": 1, "kind": "container",
-            "left": 0, "top": 0, "width": 5000000, "height": 3000000,
-            "fill_hex": "111827", "anomalous": False}
-    icon = {"shape_id": 2, "kind": "picture",
-            "left": 2400000, "top": 1400000,
-            "width": 200000, "height": 200000,
-            "anomalous": False}
-    slide = {"objects": [card, icon]}
-    issues = detect_proportion_issues(slide)
-    empty = [i for i in issues if i["category"] == "card-too-empty"]
-    assert len(empty) == 1
-    assert empty[0]["proportion_report"]["empty_pct"] > 55
+def test_classify_role_badge_short_small():
+    card = {"left": 0, "top": 0, "width": 5000000, "height": 3000000}
+    child = {"kind": "text", "text": "01",
+             "width": 200000, "height": 200000,
+             "font_sizes": [11 * 12700]}
+    assert _classify_role(child, card) == "badge"
 
 
-# ---- icon-text size mismatch ----
+# ---- icon visible area ----
 
-def test_detect_icon_text_mismatch():
-    """100pt emoji + 9pt body = mismatch."""
-    card = {"shape_id": 1, "kind": "container",
-            "left": 0, "top": 0, "width": 5000000, "height": 3000000,
-            "fill_hex": "111827", "anomalous": False}
-    icon = {"shape_id": 2, "kind": "text", "text": "💬",
-            "left": 100000, "top": 100000,
-            "width": 1000000, "height": 1000000,
-            "font_sizes": [100 * 12700],
-            "anomalous": False}
-    title = {"shape_id": 3, "kind": "text", "text": "Description text body",
-             "left": 100000, "top": 1500000,
-             "width": 4000000, "height": 300000,
-             "font_sizes": [9 * 12700],
-             "anomalous": False}
-    slide = {"objects": [card, icon, title]}
-    issues = detect_proportion_issues(slide)
-    mismatch = [i for i in issues if i["category"] == "icon-text-size-mismatch"]
-    assert len(mismatch) == 1
-    rep = mismatch[0]["proportion_report"]
-    assert rep["icon_pt"] > 90
-    assert rep["title_pt"] < 12
-    assert rep["ratio"] > 8
+def test_icon_visible_area_uses_glyph_for_emoji():
+    """For text icons, returns (font_pt × 1.2)² — independent of bbox.
+    A wide text-frame around a small glyph reports glyph area, not bbox."""
+    icon = {"kind": "text", "text": "💬",
+            "width": 5000000, "height": 1500000,    # huge frame
+            "font_sizes": [80 * 12700]}
+    area = _icon_visible_area(icon)
+    expected = int(80 * 12700 * 1.2) ** 2
+    assert area == expected
 
 
-# ---- top-heavy composition ----
-
-def test_detect_top_heavy():
-    """All content in top half → top-heavy."""
-    card = {"shape_id": 1, "kind": "container",
-            "left": 0, "top": 0, "width": 5000000, "height": 3000000,
-            "fill_hex": "111827", "anomalous": False}
-    # Icon AND text both in top quarter
-    icon = {"shape_id": 2, "kind": "picture",
-            "left": 100000, "top": 100000,
-            "width": 1000000, "height": 500000,
-            "anomalous": False}
-    text = {"shape_id": 3, "kind": "text", "text": "Header text long enough",
-            "left": 100000, "top": 200000,
-            "width": 4000000, "height": 400000,
-            "font_sizes": [12 * 12700],
-            "anomalous": False}
-    slide = {"objects": [card, icon, text]}
-    issues = detect_proportion_issues(slide)
-    top_heavy = [i for i in issues if i["category"] == "top-heavy-composition"]
-    assert len(top_heavy) == 1
+def test_icon_visible_area_uses_bbox_for_picture():
+    icon = {"kind": "picture", "width": 1000000, "height": 1000000}
+    assert _icon_visible_area(icon) == 1_000_000_000_000
 
 
-# ---- no false positives ----
+# ---- describe_composition end-to-end ----
 
-def test_no_issues_for_balanced_card():
-    """A well-proportioned card produces no issues."""
-    card = {"shape_id": 1, "kind": "container",
-            "left": 0, "top": 0, "width": 5000000, "height": 3000000,
-            "fill_hex": "111827", "anomalous": False}
-    # Icon at 12% of area
-    icon = {"shape_id": 2, "kind": "picture",
-            "left": 1900000, "top": 600000,
-            "width": 1300000, "height": 1300000,
-            "anomalous": False}
-    # Text below icon
-    text = {"shape_id": 3, "kind": "text", "text": "Description here long enough",
-            "left": 200000, "top": 2200000,
-            "width": 4600000, "height": 700000,
-            "font_sizes": [14 * 12700],
-            "anomalous": False}
-    slide = {"objects": [card, icon, text]}
-    issues = detect_proportion_issues(slide)
-    # May still emit info-level "card-too-empty" but the icon shouldn't be
-    # flagged as undersized or oversized.
-    assert not any(i["category"] in ("icon-undersized", "icon-oversized")
-                    for i in issues)
+def test_describe_composition_emits_facts_no_judgments():
+    """The descriptor reports geometry, not 'good/bad' verdicts."""
+    slide = {
+        "slide_index": 1,
+        "width_emu": 12192000, "height_emu": 6858000,
+        "objects": [
+            # Slide-bg (should be filtered out as a "card")
+            {"shape_id": 1, "kind": "container",
+             "left": 0, "top": 0, "width": 12192000, "height": 6858000,
+             "fill_hex": "0F0F0F", "anomalous": False},
+            # Real card
+            {"shape_id": 2, "kind": "container",
+             "left": 457200, "top": 1000000,
+             "width": 5400000, "height": 2680000,
+             "fill_hex": "1A1A1A", "anomalous": False},
+            # Emoji icon inside the card
+            {"shape_id": 3, "kind": "text", "text": "💬",
+             "left": 2400000, "top": 1800000,
+             "width": 600000, "height": 600000,
+             "font_sizes": [80 * 12700],
+             "anomalous": False},
+            # Title above the card
+            {"shape_id": 4, "kind": "text", "text": "Section title here",
+             "left": 457200, "top": 200000,
+             "width": 8000000, "height": 400000,
+             "font_sizes": [24 * 12700],
+             "anomalous": False},
+        ],
+    }
+    desc = describe_composition(slide)
+    # Slide bg filtered out
+    assert len(desc["cards"]) == 1
+    assert desc["cards"][0]["card_id"] == 2
+    # Title detected
+    assert len(desc["title_candidates"]) == 1
+    assert desc["title_candidates"][0]["shape_id"] == 4
+    # Card has 1 child (the emoji)
+    card = desc["cards"][0]
+    assert card["composition_summary"]["n_children"] == 1
+    icon = card["children"][0]
+    assert icon["role_hint"] == "icon"
+    # The descriptor uses glyph² area for emoji, not bbox.
+    # 80pt → glyph_emu = 80 × 12700 × 1.2 = 1219200 → glyph_area ≈ 1.49e12
+    # card area = 5400000 × 2680000 = 1.4472e13
+    # ratio ≈ 10.3%
+    assert 8.0 <= icon["visible_area_pct_of_card"] <= 13.0
+
+
+def test_describe_composition_includes_alignment_grid():
+    """The grid detector clusters lefts/tops where ≥2 shapes share an
+    alignment. Need 2+ shapes per gridline for it to be "detected"."""
+    slide = {
+        "slide_index": 1,
+        "width_emu": 12192000, "height_emu": 6858000,
+        "objects": [
+            # 4 shapes: 2 cards top-aligned, 2 child shapes also aligned
+            {"shape_id": 2, "kind": "container",
+             "left": 457200, "top": 1000000,
+             "width": 5400000, "height": 2680000,
+             "fill_hex": "111827", "anomalous": False},
+            {"shape_id": 3, "kind": "container",
+             "left": 6500000, "top": 1000000,
+             "width": 5400000, "height": 2680000,
+             "fill_hex": "111827", "anomalous": False},
+            # Children inside left card aligned at left=457200
+            {"shape_id": 4, "kind": "text", "text": "Hi",
+             "left": 457200, "top": 1500000,
+             "width": 1000000, "height": 200000,
+             "anomalous": False},
+            # Children inside right card aligned at left=6500000
+            {"shape_id": 5, "kind": "text", "text": "Hi",
+             "left": 6500000, "top": 1500000,
+             "width": 1000000, "height": 200000,
+             "anomalous": False},
+        ],
+    }
+    desc = describe_composition(slide)
+    grid = desc["global_alignment"]
+    # Now each column has 2 shapes sharing a left → 2 columns detected
+    assert len(grid["detected_column_lefts_emu"]) == 2
+
+
+def test_describe_composition_no_hardcoded_judgments():
+    """The descriptor never returns 'icon-undersized' or other verdicts —
+    those are agent decisions based on DESIGN_PRINCIPLES.md."""
+    slide = {
+        "slide_index": 1,
+        "width_emu": 12192000, "height_emu": 6858000,
+        "objects": [
+            {"shape_id": 1, "kind": "container",
+             "left": 0, "top": 0, "width": 5400000, "height": 2680000,
+             "fill_hex": "111827", "anomalous": False},
+            {"shape_id": 2, "kind": "picture",
+             "left": 100000, "top": 100000,
+             "width": 100000, "height": 100000,
+             "anomalous": False},
+        ],
+    }
+    desc = describe_composition(slide)
+    # No "issues" array, no severity, no suggested_argv
+    assert "issues" not in desc
+    assert "actions" not in desc
+    # Just facts per child
+    assert "visible_area_pct_of_card" in desc["cards"][0]["children"][0]

@@ -54,11 +54,17 @@ def _shape_by_text(prs: Presentation, text: str):
 
 
 def test_list_ops_json(tmp_path: Path):
+    import os
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
     result = subprocess.run(
         [sys.executable, str(MUTATE), "list-ops", "--json"],
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
     )
     payload = json.loads(result.stdout)
     assert "ops" in payload

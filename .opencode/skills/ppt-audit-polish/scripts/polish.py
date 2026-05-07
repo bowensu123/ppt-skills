@@ -225,21 +225,31 @@ def polish_one_click(
         except subprocess.CalledProcessError:
             artifacts.append({"stage": "refine-contrast", "error": "failed"})
 
-        # 6. refine-proportions — visual composition auditor that catches
-        #    icon-too-small / icon-too-big / card-too-empty / icon-text
-        #    size mismatch, then auto-applies safe resize fixes.
-        stage = work_dir / "stage-6-proportions.pptx"
+        # 6. Composition descriptor (read-only) — emit a JSON the agent
+        #    reads alongside DESIGN_PRINCIPLES.md to JUDGE what (if
+        #    anything) to change visually. No auto-fixes here; agent
+        #    decides via visual judgment + applies via mutate ops.
+        comp_path = work_dir / "composition.json"
         try:
-            r = _run_op("refine-proportions",
-                        "--in", str(current), "--out", str(stage))
-            artifacts.append({
-                "stage": "refine-proportions",
-                "detected": r.get("detected", 0),
-                "applied": r.get("applied", 0),
-            })
-            current = stage
+            cmd = [
+                sys.executable, str(SCRIPT_DIR / "mutate.py"),
+                "describe-composition",
+                "--in", str(current),
+                "--output", str(comp_path),
+            ]
+            subprocess.run(
+                cmd, check=True, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", env=_utf8_env(),
+            )
+            if comp_path.exists():
+                composition = json.loads(comp_path.read_text(encoding="utf-8"))
+                artifacts.append({
+                    "stage": "describe-composition",
+                    "slides_described": composition.get("slide_count", 0),
+                    "path": str(comp_path),
+                })
         except subprocess.CalledProcessError:
-            artifacts.append({"stage": "refine-proportions", "error": "failed"})
+            artifacts.append({"stage": "describe-composition", "error": "failed"})
 
         # 7. Copy final to output and produce final summary with diff.
         shutil.copy(current, output_path)

@@ -45,7 +45,22 @@ Optional flags:
 For decks where geometric clustering might mis-group similar-looking
 shapes (a section title sized like content cards, a deliberately-
 smaller card, etc.), the agent should categorize peers semantically
-BEFORE the repair runs:
+BEFORE the repair runs.
+
+**Critical reading**: before designing peer groups OR judging the
+polished output, the agent MUST read
+[`docs/DESIGN_PRINCIPLES.md`](docs/DESIGN_PRINCIPLES.md). That document
+states the design goal:
+
+> 信息密集，但通过清晰主结论、明确分区、严格对齐和视觉层级，让观众一眼知道
+> 先看什么、重点是什么、结论是什么。
+
+…and the 5 qualities (clear conclusion / distinct partitions / strict
+alignment / visual hierarchy / information density) that the agent
+applies as JUDGMENT — there are NO hardcoded "icon should be X% of
+card" rules in this skill anymore. Agent looks at the slide and the
+composition descriptor, decides what serves THIS slide's
+communication.
 
 ```
 [1] python scripts/state_summary.py --in input.pptx --work-dir state/
@@ -92,14 +107,45 @@ BEFORE the repair runs:
           icons preserved binary-faithful)
       2. unify-font
       3. polish-business
+      4. refine-contrast        (background-aware text color)
+      5. describe-composition   (read-only descriptor for the agent)
+    Outputs:
+      polished.pptx
+      state/composition.json    (agent reads this in step 5)
 
-[5] Read polished.pptx render with Read tool, give 3-part report.
+[5] AGENT JUDGMENT — the actual polish step the agent must do:
+    Read state/render/slide-001.png (the polished output)
+    Read state/composition.json     (per-card geometry + role hints)
+    Read docs/DESIGN_PRINCIPLES.md   (the 5 design qualities)
+
+    For each of: clear-main-conclusion / distinct-partitions /
+    strict-alignment / visual-hierarchy / information-density —
+    JUDGE whether the polished slide passes. The composition.json
+    gives FACTS (this card is 60% empty; these tops differ by 50K
+    EMU; font-pt levels are [9, 14, 28]); the agent reads them
+    against the principles and decides what to change.
+
+    No hardcoded thresholds. Decisions are per-slide and per-content.
+    Examples:
+      - "Card #5 has only icon at center, 65% empty. The icon is
+         small (3% of card). On THIS slide (poster, single takeaway),
+         a bigger icon is right — apply set-font-size +60pt"
+      - "Card #5 has only icon at center, 65% empty. On THIS slide
+         (dashboard with 6 dense cards), the icon is meant as accent —
+         leave alone, accept the empty space as breathing room"
+
+[6] Apply fixes via mutate ops (move / resize / set-font-size /
+    align / nudge / set-fill / etc.).
+
+[7] Re-render via state_summary.py and re-judge. Iterate up to 3-4
+    times or until the slide passes the first-glance test.
 ```
 
-Key principle: **rules detect issues, agent decides which shapes are
-peers, rules apply uniformity per agent's decision**. The XML extracts
-binary-faithful asset data; SVG provides post-render geometry; both
-ensure every text and icon is preserved across the repair.
+Key principle: **rules describe; agent judges; mutate ops execute**.
+There are zero hardcoded "the right value is X" thresholds in this
+skill — the design goal is documented in
+[docs/DESIGN_PRINCIPLES.md](docs/DESIGN_PRINCIPLES.md), the agent
+applies it via vision.
 
 After it returns:
 1. Read the `final_render` PNG with the Read tool — confirm visually it improved
