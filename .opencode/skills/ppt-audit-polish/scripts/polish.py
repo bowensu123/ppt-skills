@@ -101,12 +101,21 @@ def polish_one_click(
     skip_repair: bool = False,
     skip_font: bool = False,
     work_dir: Path | None = None,
+    peer_groups: Path | None = None,
+    skip_asset_extract: bool = False,
 ) -> dict:
     """Run the chained pipeline. Returns a summary dict.
 
-    `work_dir` keeps intermediate artifacts (renders, summaries) for
-    inspection. If omitted, intermediates land in a temp dir that's
-    cleaned up at the end.
+    `peer_groups` (optional): path to a JSON the agent wrote categorizing
+    shapes into semantic peer groups. When provided, `repair-peers-smart`
+    runs INSTEAD of the geometric `repair-grid` + `repair-peer-cards` ops.
+    The agent's semantic categorization tends to be more accurate than
+    pure geometric clustering for decks where size-similarity ≠ same role.
+
+    `skip_asset_extract`: by default we run `_asset_extract.py` at the
+    start so assets are preserved in `<work_dir>/assets/` regardless of
+    whether the rest of the pipeline references them. The agent can read
+    assets-manifest.json to know what icons/pictures exist on the deck.
     """
     cleanup_temp = work_dir is None
     if work_dir is None:
@@ -116,30 +125,68 @@ def polish_one_click(
 
     artifacts: list[dict] = []
     try:
+        # 0. Asset extraction — preserve every picture/icon binary so
+        #    the agent has full visibility and downstream tools can
+        #    relocate them without losing fidelity.
+        if not skip_asset_extract:
+            try:
+                subprocess.run(
+                    [sys.executable, str(SCRIPT_DIR / "_asset_extract.py"),
+                     "--in", str(input_path),
+                     "--work-dir", str(work_dir)],
+                    check=True, capture_output=True, text=True,
+                    encoding="utf-8", errors="replace", env=_utf8_env(),
+                )
+                manifest_path = work_dir / "assets-manifest.json"
+                if manifest_path.exists():
+                    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    artifacts.append({
+                        "stage": "asset-extract",
+                        "extracted": manifest.get("extracted_count", 0),
+                    })
+            except subprocess.CalledProcessError:
+                # Asset extraction is best-effort; pipeline continues.
+                artifacts.append({"stage": "asset-extract", "extracted": 0,
+                                  "error": "extraction-failed"})
+
         # 1. Baseline summary (one render so user can compare).
         baseline = _run_summary(input_path, work_dir / "state-baseline")
         baseline_score = baseline.get("score", 0.0)
         baseline_render = baseline.get("render", {}).get("first_slide_png")
 
         current = input_path
-        # 2. repair-grid (fixes 2D NxM dashboards including header strips)
+        # 2. Structural repair: agent-defined peer groups when provided,
+        #    geometric clustering as fallback.
         if not skip_repair:
-            stage = work_dir / "stage-1-grid.pptx"
-            r = _run_op("repair-grid",
-                        "--in", str(current), "--out", str(stage),
-                        "--nested")
-            artifacts.append({"stage": "repair-grid", "actions": r.get("actions_applied", 0)})
-            current = stage
+            if peer_groups is not None:
+                stage = work_dir / "stage-1-peers-smart.pptx"
+                r = _run_op("repair-peers-smart",
+                            "--in", str(current), "--out", str(stage),
+                            "--groups", str(peer_groups))
+                artifacts.append({
+                    "stage": "repair-peers-smart",
+                    "groups": r.get("groups_processed", 0),
+                    "actions": r.get("actions_applied", 0),
+                })
+                current = stage
+            else:
+                stage = work_dir / "stage-1-grid.pptx"
+                r = _run_op("repair-grid",
+                            "--in", str(current), "--out", str(stage),
+                            "--nested")
+                artifacts.append({"stage": "repair-grid",
+                                   "actions": r.get("actions_applied", 0)})
+                current = stage
 
-            # 3. repair-peer-cards (fixes 1D row outliers; safe scope)
-            stage = work_dir / "stage-2-peers.pptx"
-            r = _run_op("repair-peer-cards",
-                        "--in", str(current), "--out", str(stage),
-                        "--scope", "safe")
-            artifacts.append({"stage": "repair-peer-cards", "actions": r.get("actions_applied", 0)})
-            current = stage
+                stage = work_dir / "stage-2-peers.pptx"
+                r = _run_op("repair-peer-cards",
+                            "--in", str(current), "--out", str(stage),
+                            "--scope", "safe")
+                artifacts.append({"stage": "repair-peer-cards",
+                                   "actions": r.get("actions_applied", 0)})
+                current = stage
 
-        # 4. unify-font
+        # 3. unify-font
         if not skip_font:
             stage = work_dir / "stage-3-font.pptx"
             r = _run_op("unify-font",
@@ -147,7 +194,7 @@ def polish_one_click(
             artifacts.append({"stage": "unify-font", "actions": r.get("changed", 0)})
             current = stage
 
-        # 5. polish-business
+        # 4. polish-business
         stage = work_dir / "stage-4-business.pptx"
         polish_args = ["--in", str(current), "--out", str(stage), "--level", str(level)]
         if theme is not None:
@@ -203,6 +250,13 @@ def main() -> int:
                         help="skip repair-grid + repair-peer-cards")
     parser.add_argument("--skip-font", action="store_true",
                         help="skip unify-font")
+    parser.add_argument("--peer-groups", type=Path, default=None,
+                        help="path to peer-groups.json the agent wrote; "
+                             "if provided, repair-peers-smart runs INSTEAD "
+                             "of the geometric repair-grid + repair-peer-cards")
+    parser.add_argument("--skip-asset-extract", action="store_true",
+                        help="skip asset extraction (faster but agent loses "
+                             "visibility into which icons/pictures exist)")
     parser.add_argument("--work-dir", type=Path, default=None,
                         help="keep intermediate artifacts here (default: temp + cleanup)")
     args = parser.parse_args()
@@ -215,6 +269,8 @@ def main() -> int:
         skip_repair=args.skip_repair,
         skip_font=args.skip_font,
         work_dir=args.work_dir,
+        peer_groups=args.peer_groups,
+        skip_asset_extract=args.skip_asset_extract,
     )
     sys.stdout.write(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")
     return 0

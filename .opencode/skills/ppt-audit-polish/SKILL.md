@@ -23,9 +23,9 @@ The user is asking YOU (the OpenCode agent) to drive the polish work. You use yo
 ## FAST PATH: one-click polish (when user says "一键美化")
 
 Run a single command — no iteration, no per-step verification. The
-script chains `repair-grid → repair-peer-cards → unify-font →
-polish-business` and runs state_summary at start and end so the user
-sees a baseline-vs-final report.
+script chains `asset-extract → repair → unify-font → polish-business`
+and runs state_summary at start and end so the user sees a baseline-
+vs-final report.
 
 ```bash
 python scripts/polish.py --in <input.pptx> --out <output.pptx>
@@ -34,9 +34,72 @@ python scripts/polish.py --in <input.pptx> --out <output.pptx>
 Optional flags:
 - `--level 1|2|3` — polish intensity (1 subtle, 2 standard default, 3 rich decorative)
 - `--theme themes/<name>.json` — explicit theme (auto-picked from content otherwise)
+- `--peer-groups <path>` — JSON the agent wrote with semantic peer groupings; when provided, `repair-peers-smart` runs INSTEAD of geometric `repair-grid` + `repair-peer-cards` (preferred when shapes that look similar belong to different categories)
 - `--skip-repair` — skip structural fixes (use when input is already structurally clean)
 - `--skip-font` — keep original fonts (skip Microsoft YaHei enforcement)
+- `--skip-asset-extract` — skip the upfront asset extraction (faster but agent loses visibility into icons/pictures)
 - `--work-dir <dir>` — keep intermediate artifacts for inspection
+
+### Smart agent flow (recommended for high-stakes decks)
+
+For decks where geometric clustering might mis-group similar-looking
+shapes (a section title sized like content cards, a deliberately-
+smaller card, etc.), the agent should categorize peers semantically
+BEFORE the repair runs:
+
+```
+[1] python scripts/state_summary.py --in input.pptx --work-dir state/
+    → state/render/slide-001.png        clean visual
+    → state/annotated/slide-001.annotated.png   shape_id labels
+    → state/inspection.json             every shape's geometry
+    → state/svg-signals.json            text-overflow / font-fallback / z-drift
+    → state/svg-render/<stem>.svg       post-render SVG (full text + icon
+                                         positions as the renderer drew them)
+
+[2] python scripts/_asset_extract.py --in input.pptx --work-dir state/
+    → state/assets/sid_*.png             every picture binary preserved
+    → state/assets-manifest.json         per-asset bbox + slide_index +
+                                          decorative_hint
+
+[3] AGENT reasoning step:
+    Read state/render/slide-001.png with the Read tool — SEE the slide
+    Read state/inspection.json + state/assets-manifest.json
+    Decide which shapes belong to the same category/framework:
+      "These 6 shapes are AI-tool cards (peer group 1) — should have
+       uniform size + uniform spacing"
+      "These 6 shapes are section header bars (peer group 2) — should
+       have uniform width but different vertical positions are OK"
+      "This shape is a one-off legend, not a peer of anything"
+    Write state/peer-groups.json:
+      {
+        "groups": [
+          {"name": "AI-tool-cards", "shape_ids": [...],
+           "axis": "horizontal",
+           "uniform_size": true, "uniform_spacing": true},
+          {"name": "section-headers", "shape_ids": [...],
+           "axis": "vertical",
+           "uniform_size": true, "uniform_spacing": false},
+          ...
+        ]
+      }
+
+[4] python scripts/polish.py --in input.pptx --out polished.pptx \
+        --peer-groups state/peer-groups.json --work-dir state/
+    Pipeline runs:
+      0. asset-extract (already done → reused)
+      1. repair-peers-smart --groups state/peer-groups.json
+         (uses agent's semantic groups; children move with parents;
+          icons preserved binary-faithful)
+      2. unify-font
+      3. polish-business
+
+[5] Read polished.pptx render with Read tool, give 3-part report.
+```
+
+Key principle: **rules detect issues, agent decides which shapes are
+peers, rules apply uniformity per agent's decision**. The XML extracts
+binary-faithful asset data; SVG provides post-render geometry; both
+ensure every text and icon is preserved across the repair.
 
 After it returns:
 1. Read the `final_render` PNG with the Read tool — confirm visually it improved

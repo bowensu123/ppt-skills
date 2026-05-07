@@ -1102,6 +1102,33 @@ def cmd_polish_business(args):
     return 0
 
 
+@op("repair",
+    "Apply size/spacing/alignment uniformity within agent-defined peer groups. "
+    "Reads a peer-groups.json the agent wrote after looking at the render. "
+    "Children move with their parent (icons + text inside cards stay attached). "
+    "Use this when geometric clustering (repair-grid / repair-peer-cards) "
+    "would mis-group semantically-distinct shapes that happen to look similar.",
+    "mutate repair-peers-smart --in X --out Y --groups peer-groups.json")
+def cmd_repair_peers_smart(args):
+    from _repair_peers_smart import repair_peers_smart
+    prs = _open(args.in_path)
+    groups = json.loads(Path(args.groups).read_text(encoding="utf-8"))
+    result = repair_peers_smart(prs, groups)
+    _save(prs, args.out_path)
+    LOG.event("repair-peers-smart",
+              groups=result["groups_processed"],
+              actions=result["actions_applied"],
+              skipped=len(result["skipped"]))
+    _emit({
+        "op": "repair-peers-smart",
+        "groups_processed": result["groups_processed"],
+        "actions_applied": result["actions_applied"],
+        "actions": result["actions"],
+        "skipped": result["skipped"],
+    })
+    return 0
+
+
 @op("repair", "Detect and fix peer-card outliers. --scope safe (only box+header) | no-orphans | all (default).",
     "mutate repair-peer-cards --in X --out Y [--scope safe]")
 def cmd_repair_peer_cards(args):
@@ -1320,6 +1347,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("repair-grid", help="auto-fix 2D grid layout outliers (NxM dashboards)")
     _add_io(p); p.add_argument("--nested", action="store_true", help="recurse into each panel for sub-grids")
     p.set_defaults(func=cmd_repair_grid)
+    p = sub.add_parser("repair-peers-smart",
+                        help="apply uniform size/spacing/alignment per agent-defined peer groups")
+    _add_io(p)
+    p.add_argument("--groups", required=True, type=Path,
+                   help="JSON file the agent wrote: {\"groups\": [...]}")
+    p.set_defaults(func=cmd_repair_peers_smart)
 
     # Polish
     p = sub.add_parser("polish-business", help="business-grade visual polish (typography + decoration; doesn't change content)")
