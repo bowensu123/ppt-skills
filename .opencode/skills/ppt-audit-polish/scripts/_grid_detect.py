@@ -33,6 +33,7 @@ GRID_PANEL_MIN_W = 800000          # candidate panel needs this minimum width
 GRID_PANEL_MIN_H = 600000          # ...and this minimum height
 GRID_SIZE_RATIO_TOL = 0.40         # peer panels can vary up to 40% in W/H
 GRID_VALIDITY_RATIO = 0.60         # need at least 60% of (rows × cols) cells filled
+HEADER_STRIP_OFFSET_TOL = 100000   # ~0.11" relative-offset deviation = strip outlier
 
 
 # ----- 1-D fixed-eps clustering -----
@@ -287,15 +288,140 @@ def detect_grids_nested(slide_objects: list[dict], max_depth: int = 2) -> list[d
     return out
 
 
+# ----- header-strip relative-offset outlier detection -----
+
+def _strip_candidates_for_panel(panel: dict, all_objects: list[dict]) -> list[dict]:
+    """Return filled-color shapes that look like a header strip for `panel`.
+
+    A "header strip" is a small filled rectangle that lives at or near the
+    panel's top edge. Width is comparable to the panel; height is a small
+    fraction of the panel's height. We allow some vertical slack ABOVE the
+    panel because that's exactly the failure mode we're trying to detect
+    (strip floating above its panel).
+    """
+    out = []
+    pw = panel["width"]; ph = panel["height"]
+    pl = panel["left"]; pt = panel["top"]
+    # Vertical band: from 1.5x panel-height ABOVE panel top down to 35% INTO the panel.
+    band_top_min = pt - int(ph * 1.5)
+    band_top_max = pt + int(ph * 0.35)
+    for o in all_objects:
+        if o["shape_id"] == panel["shape_id"]:
+            continue
+        if o.get("anomalous"):
+            continue
+        if o.get("kind") not in ("container", "shape"):
+            continue
+        if not o.get("fill_hex"):
+            continue
+        # Same fill as the panel itself = it's the panel, skip
+        if o.get("fill_hex") == panel.get("fill_hex"):
+            continue
+        # Geometry filters
+        if not (band_top_min <= o["top"] <= band_top_max):
+            continue
+        if o["height"] >= ph * 0.5:           # too tall to be a strip
+            continue
+        if o["width"] < pw * 0.20:            # too narrow to be a strip
+            continue
+        if o["width"] > pw * 1.20:            # way wider than the panel
+            continue
+        # Horizontal containment: strip's x range must mostly overlap panel's
+        ox_l = o["left"]; ox_r = o["left"] + o["width"]
+        if ox_r < pl or ox_l > pl + pw:
+            continue
+        out.append(o)
+    return out
+
+
+def _detect_header_strip_outliers(
+    grid: dict, panel_lookup: dict[int, dict], all_objects: list[dict]
+) -> list[dict]:
+    """For each panel in `grid`, find its header strip, compute the relative
+    (dx, dy) offset to the panel top-left, and flag strips whose offset
+    deviates from the peer median.
+
+    Returns a list of fix dicts:
+        {shape_id, name, left, top}  — target absolute position for the strip.
+    """
+    # Build per-panel best-strip candidate.
+    strips_per_panel: list[tuple[dict, dict]] = []
+    for panel_sid in grid["panel_ids"]:
+        panel = panel_lookup.get(panel_sid)
+        if panel is None:
+            continue
+        cands = _strip_candidates_for_panel(panel, all_objects)
+        if not cands:
+            continue
+        # Prefer the candidate closest to the panel's top edge AND inside the
+        # panel's x-range. Score = |dy| + |dx|.
+        cands.sort(
+            key=lambda c: abs(c["top"] - panel["top"]) + abs(c["left"] - panel["left"])
+        )
+        strips_per_panel.append((panel, cands[0]))
+
+    if len(strips_per_panel) < 3:
+        # Need at least 3 peer strips to vote on the median offset.
+        return []
+
+    rel_dx = [s["left"] - p["left"] for p, s in strips_per_panel]
+    rel_dy = [s["top"] - p["top"] for p, s in strips_per_panel]
+    med_dx = int(median(rel_dx))
+    med_dy = int(median(rel_dy))
+
+    # Also vote on width and height to detect oversized/undersized strips.
+    rel_w = [s["width"] for _, s in strips_per_panel]
+    rel_h = [s["height"] for _, s in strips_per_panel]
+    med_w = int(median(rel_w))
+    med_h = int(median(rel_h))
+
+    fixes = []
+    seen_ids = set()
+    for panel, strip in strips_per_panel:
+        if strip["shape_id"] in seen_ids:
+            continue
+        seen_ids.add(strip["shape_id"])
+        dx = strip["left"] - panel["left"]
+        dy = strip["top"] - panel["top"]
+        wants: dict[str, int] = {}
+        if abs(dx - med_dx) > HEADER_STRIP_OFFSET_TOL:
+            wants["left"] = panel["left"] + med_dx
+        if abs(dy - med_dy) > HEADER_STRIP_OFFSET_TOL:
+            wants["top"] = panel["top"] + med_dy
+        # Size voting: > 25% deviation from peer median = outlier
+        if abs(strip["width"] - med_w) / max(med_w, 1) > 0.25:
+            wants["width"] = med_w
+        if abs(strip["height"] - med_h) / max(med_h, 1) > 0.25:
+            wants["height"] = med_h
+        if wants:
+            fixes.append({
+                "shape_id": strip["shape_id"],
+                "name": strip["name"],
+                **wants,
+            })
+    return fixes
+
+
 # ----- diagnose-style API for integration with apply_repair -----
 
 def diagnose_grid_repair(slide_inspection: dict, max_depth: int = 2) -> dict:
-    """Return a repair plan structurally similar to _card_repair.diagnose_repair."""
-    grids = detect_grids_nested(slide_inspection["objects"], max_depth=max_depth)
+    """Return a repair plan structurally similar to _card_repair.diagnose_repair.
+
+    For each detected grid we emit:
+      - card_box_fixes: panels that need to snap to a row/col anchor
+      - header_strip_fixes: header strips whose relative offset to their
+        panel disagrees with the peer median (catches strips floating above
+        their panel, oversized strips, etc.)
+    """
+    all_objects = slide_inspection["objects"]
+    grids = detect_grids_nested(all_objects, max_depth=max_depth)
     rows_out = []
     for grid in grids:
-        if not grid["outliers"]:
-            continue
+        panel_lookup = {
+            sid: next((o for o in all_objects if o["shape_id"] == sid), None)
+            for sid in grid["panel_ids"]
+        }
+        # Box fixes from panel-grid outliers.
         box_fixes = []
         for o in grid["outliers"]:
             box_fixes.append({
@@ -307,10 +433,30 @@ def diagnose_grid_repair(slide_inspection: dict, max_depth: int = 2) -> dict:
                 "depth": grid["depth"],
                 "parent_panel_id": grid.get("parent_panel_id"),
             })
+        # Header-strip outliers (must run AFTER virtually applying box fixes
+        # so a panel that itself moved doesn't poison the strip detection).
+        # We construct a virtual panel_lookup with corrected positions.
+        virtual_lookup = {}
+        for sid, panel in panel_lookup.items():
+            if panel is None:
+                continue
+            box_fix = next((b for b in box_fixes if b["shape_id"] == sid), None)
+            if box_fix:
+                vp = dict(panel)
+                if "left" in box_fix: vp["left"] = box_fix["left"]
+                if "top" in box_fix: vp["top"] = box_fix["top"]
+                virtual_lookup[sid] = vp
+            else:
+                virtual_lookup[sid] = panel
+        header_fixes = _detect_header_strip_outliers(grid, virtual_lookup, all_objects)
+
+        if not (box_fixes or header_fixes):
+            continue
+
         rows_out.append({
             "card_shape_ids": grid["panel_ids"],
             "card_box_fixes": box_fixes,
-            "header_strip_fixes": [],
+            "header_strip_fixes": header_fixes,
             "orphan_relocations": [],
             "displaced_relocations": [],
             "_grid_meta": {

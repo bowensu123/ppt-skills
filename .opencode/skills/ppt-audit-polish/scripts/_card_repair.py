@@ -622,13 +622,23 @@ def apply_repair(slide, slide_inspection: dict, plan: dict, action_log: list[dic
             shape = sid_to_shape.get(fix["shape_id"])
             if shape is None:
                 continue
-            shape.width = Emu(fix["width"])
+            applied = []
+            if "width" in fix:
+                shape.width = Emu(fix["width"])
+                applied.append(f"width={fix['width']}")
             if "height" in fix:
                 shape.height = Emu(fix["height"])
+                applied.append(f"height={fix['height']}")
+            if "left" in fix:
+                shape.left = Emu(fix["left"])
+                applied.append(f"left={fix['left']}")
+            if "top" in fix:
+                shape.top = Emu(fix["top"])
+                applied.append(f"top={fix['top']}")
             action_log.append({
                 "slide_index": slide_idx, "action": "repair-header-strip",
                 "target": fix["name"],
-                "detail": f"width={fix['width']}{' height=' + str(fix['height']) if 'height' in fix else ''}",
+                "detail": " ".join(applied),
             })
         for fix in row["orphan_relocations"]:
             shape = sid_to_shape.get(fix["shape_id"])

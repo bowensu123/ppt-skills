@@ -11,6 +11,7 @@ from _grid_detect import (
     _cluster_1d,
     _candidate_panels,
     _largest_size_cohort,
+    _detect_header_strip_outliers,
     detect_grid,
     detect_grids_nested,
     diagnose_grid_repair,
@@ -170,6 +171,64 @@ def test_nested_grids_finds_sub_grid():
     assert outer["rows"] == 2 and outer["cols"] == 2
     nested = [g for g in grids if g["depth"] == 1]
     assert len(nested) >= 1
+
+
+# ---------- header-strip relative-offset outliers ----------
+
+def _strip(sid, left, top, w=5400000, h=200000, fill="00D4FF"):
+    return {
+        "shape_id": sid,
+        "name": f"strip-{sid}",
+        "kind": "container",
+        "left": left, "top": top, "width": w, "height": h,
+        "anomalous": False,
+        "fill_hex": fill,
+    }
+
+
+def test_header_strip_outlier_detected():
+    """A 2x3 grid where one panel's header strip floats 274K EMU above the
+    panel top (vlm_data_agent_infra reproducer). All other strips sit at
+    panel.top + 0. Detector should flag the outlier and propose a snap to
+    the peer-median offset."""
+    panels = []
+    strips = []
+    sid = 100
+    for r, top in enumerate([1000000, 3000000, 5000000]):
+        for c, left in enumerate([500000, 6500000]):
+            panels.append(_panel(sid, left, top))
+            strips.append(_strip(sid + 1, left, top))
+            sid += 10
+
+    # Make one strip float 274320 EMU above its panel.
+    bad_strip = strips[2]   # row 1, col 0
+    bad_panel = panels[2]
+    bad_strip["top"] = bad_panel["top"] - 274320
+
+    grid = detect_grid(panels)
+    assert grid is not None
+    panel_lookup = {p["shape_id"]: p for p in panels}
+    fixes = _detect_header_strip_outliers(grid, panel_lookup, panels + strips)
+    assert any(f["shape_id"] == bad_strip["shape_id"] for f in fixes)
+    fix = next(f for f in fixes if f["shape_id"] == bad_strip["shape_id"])
+    assert "top" in fix
+    assert abs(fix["top"] - bad_panel["top"]) < 50000  # snap to panel top
+
+
+def test_header_strip_no_outlier_when_all_aligned():
+    """All strips sit at the same relative offset → no fixes."""
+    panels = []
+    strips = []
+    sid = 100
+    for r, top in enumerate([1000000, 3000000, 5000000]):
+        for c, left in enumerate([500000, 6500000]):
+            panels.append(_panel(sid, left, top))
+            strips.append(_strip(sid + 1, left, top))
+            sid += 10
+    grid = detect_grid(panels)
+    panel_lookup = {p["shape_id"]: p for p in panels}
+    fixes = _detect_header_strip_outliers(grid, panel_lookup, panels + strips)
+    assert fixes == []
 
 
 # ---------- diagnose API shape ----------
