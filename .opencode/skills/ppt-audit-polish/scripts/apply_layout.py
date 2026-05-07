@@ -1,9 +1,9 @@
 """Universal renderer for agent-designed free-form layouts.
 
-The fixed templates (`templates_py/*.py`) hard-code layout decisions:
-grid_2x3 always renders 2 columns, horizontal_timeline always uses
-N evenly-spaced numbered cards, etc. That's a sensible PRESET when
-the content fits, but constrains the agent. This script flips it:
+Fixed templates would hard-code layout decisions (always render N
+evenly-spaced numbered cards, always 2-column grid, etc.) — useful
+as presets but constraining when the content doesn't fit the pattern.
+This script flips it:
   * Agent reads content.json + assets-manifest.json + the annotated
     render of the original deck
   * Agent decides the WHOLE layout — number of columns, hierarchy,

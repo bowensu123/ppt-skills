@@ -5,9 +5,9 @@ compatibility: opencode
 metadata:
   audience: presentation-authors
   workflow: ppt-review
-  ops_count: 52
+  ops_count: 53
   themes_count: 5
-  templates_count: 4
+  templates_count: 1
 ---
 
 ## When to invoke
@@ -186,8 +186,8 @@ elif baseline_score < 25 AND (density_score < 30 OR hierarchy_score < 50):
     → Suggest Path B to the user:
       "This deck's design ceiling is low — typography, spacing, and palette
        are all far from any clean target. Polish can fix structural bugs but
-       the visual will still look cluttered. Want me to regenerate it with a
-       template instead? Available: horizontal-timeline / grid-2x3 / feature-list."
+       the visual will still look cluttered. Want me to regenerate it from
+       scratch — agent-designed free-form layout (apply_layout.py)?"
     → If user says yes: Path B (regenerate)
     → If user says no: Path A (do what we can)
 ```
@@ -412,14 +412,13 @@ After reading content + manifest + annotated render, the agent MUST:
 
 ### Preset templates (fallback path)
 
-When the agent doesn't want to design from scratch (batch jobs, simple decks), use a preset:
+When the agent doesn't want to design from scratch (batch jobs, simple decks), use the one remaining preset:
 
 | Template | Best for | Pick when… |
 |---|---|---|
-| `horizontal-timeline` | Process steps, stages, comparison classes | Items are sequential / ordered. Original deck likely had connector arrows or numeric prefixes. |
-| `grid-2x3` | Independent feature/benefit lists | Items are parallel and exchangeable. Order doesn't matter. Now renders item images in the badge slot if attributed. |
-| `feature-list` | One hero topic, items are secondary | Title is the spotlight; items are short bullets supporting it. |
-| `claude-code` | Dev tools, AI products, code/agent showcases | Technical content with CLI/code aesthetic. Now renders item images replacing the chevron when attributed. Pairs with the `claude-code` theme. |
+| `claude-code` | Dev tools, AI products, code/agent showcases | Technical content with CLI/code aesthetic. Renders item images replacing the chevron when attributed. Pairs with the `claude-code` theme. |
+
+The previous fixed templates (`horizontal-timeline`, `grid-2x3`, `feature-list`) were removed: agent-designed free-form layouts via `apply_layout.py` cover their cases more flexibly. Use the free-form path above (Steps 1-5) instead.
 
 ### Inspecting available templates
 
@@ -455,55 +454,56 @@ PATH B — STEP 1: Extract content
   → produces regen/content.json
 
 PATH B — STEP 2: Look + judge (THE AGENT-DECISION STEP)
-  Read regen/content.json with the Read tool — see title, items[].name,
-  items[].description, badge, footer.
-  Re-look at state-0/render/slide-001.png — does the original layout
-  use connectors / arrows / numbered badges?
+  Read regen/content.json + assets-manifest.json + decorations.json.
+  Look at state-0/render/slide-001.png and the annotated render.
+  Reason about layout fit (1 sentence): how many columns/rows? where
+  does the title go? which images map to which items? which decorations
+  are item-icons vs slide chrome?
 
-  Decide template:
-    - Sequential signals (numeric prefixes "Step 1" / "①" / "第一",
-      time words "First / Then / Next / Finally", connector arrows in
-      original render, items reference each other) → horizontal-timeline
-    - Parallel signals (parallel-noun item names, no order implied,
-      grid arrangement in original) → grid-2x3
-    - Title-dominant + short item bullets → feature-list
+  Write a `layout.json` with explicit element bboxes (see schema
+  documented above for `apply_layout.py`). The agent designs the
+  layout from scratch — there are no preset patterns to pick from.
 
-  Report your reasoning in ONE sentence to the user before running step 3.
-
-PATH B — STEP 3: Regenerate with chosen template
-  python scripts/regenerate.py --in input.pptx --work-dir regen/ \
-      --template <chosen-name>
-  → reads regen/content.json (already extracted), runs apply_template +
-    state_summary, copies final to regen/<stem>.polished.pptx
+PATH B — STEP 3: Render via apply_layout.py
+  python scripts/apply_layout.py \
+      --content regen/content.json \
+      --layout regen/layout.json \
+      --out regen/<stem>.polished.pptx \
+      --assets-base regen/
 
 PATH B — STEP 4: Report 3 parts (same template as Path A)
-  ▸ NUMERIC: baseline → regenerated (Δ)
-  ▸ VISUAL:  read regen/state/render/slide-001.png and describe it
-  ▸ DECISION: ADOPT (almost always — regenerate is opt-in already) or
-              REJECT and try a different template
+  ▸ NUMERIC: baseline → regenerated (Δ from state_summary)
+  ▸ VISUAL:  read regen/<stem>.polished.pptx render and describe it
+  ▸ DECISION: ADOPT or iterate (rewrite layout.json) until visual passes
+              the 5 design-principle checks
 
 REPORT
   baseline 0.0 (poor) → regenerated 82.79 (good)
-  template: horizontal-timeline (chosen because items had "Zero-shot →
-            Few-shot → Many-shot" sequence pattern)
+  layout strategy: 3-row vertical list (chosen because items had clear
+                    "Zero-shot → Few-shot → Many-shot" sequence pattern)
   output: <work-dir>/<stem>.polished.pptx
 ```
 
-### Backward-compatible CLI
+### CLI
 
 ```bash
-# Explicit template (only supported form)
-python scripts/regenerate.py --in deck.pptx --work-dir out/ --template horizontal-timeline
-python scripts/regenerate.py --in deck.pptx --work-dir out/ --template grid-2x3
-python scripts/regenerate.py --in deck.pptx --work-dir out/ --template feature-list
+# Free-form agent-designed layout (recommended)
+python scripts/apply_layout.py \
+    --content out/content.json \
+    --layout out/layout.json \
+    --out fresh.pptx \
+    --assets-base out/
 
-# With theme override
+# Or use the one preset (claude-code aesthetic for dev/AI content)
 python scripts/regenerate.py --in deck.pptx --work-dir out/ \
-    --template grid-2x3 --theme themes/business-warm.json
+    --template claude-code
 ```
 
-`--auto` was removed deliberately. Calling it now produces an explicit
-error message guiding the agent to the extract → judge → regenerate flow.
+The preset templates `horizontal-timeline`, `grid-2x3`, and
+`feature-list` were removed — agent-designed free-form layouts cover
+their cases more flexibly without locking the agent into a fixed
+visual pattern. Only `claude-code` remains as a preset for batch jobs
+where the dark-terminal aesthetic fits the content.
 
 ### What you (the agent) MUST do
 

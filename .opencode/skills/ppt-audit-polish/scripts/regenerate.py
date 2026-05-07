@@ -2,21 +2,23 @@
 render and score.
 
 CLI:
-  python regenerate.py --in deck.pptx --work-dir out/ --template horizontal-timeline
+  python regenerate.py --in deck.pptx --work-dir out/ --template claude-code
 
-The template MUST be picked by the calling agent. The recommended flow:
+The only remaining preset template is `claude-code` (dark + coral +
+terminal aesthetic). For any other layout direction, use the free-form
+agent-designed flow via `apply_layout.py` which lets the agent compose
+any layout from primitives (text / rich_text / image / rect / circle /
+table / chart / etc.). The previous fixed templates (horizontal-timeline,
+grid-2x3, feature-list) were removed — they constrained the agent to
+mechanical patterns that often don't fit the content.
 
-  1. python extract_content.py --in deck.pptx --work-dir out/
-       (or run state_summary.py first to also see the original render)
-  2. Read out/content.json AND out/render/slide-001.png with your own eyes.
-     Decide which template fits: is the content sequential (steps, stages,
-     timeline) → horizontal-timeline; independent parallel features →
-     grid-2x3; one hero topic with secondary list → feature-list.
-  3. python regenerate.py --in deck.pptx --work-dir out/ --template <chosen>
-
-Item-count heuristics were removed deliberately — a 4-step process and
-4 independent benefits both have item_count=4 but want different layouts.
-The agent's multimodal judgment is the source of truth.
+For free-form regeneration, run instead:
+  python scripts/extract_content.py --in deck.pptx --work-dir out/
+  python scripts/_asset_extract.py  --in deck.pptx --work-dir out/
+  # agent reads content.json + assets, writes layout.json
+  python scripts/apply_layout.py \
+      --content out/content.json --layout out/layout.json \
+      --out fresh.pptx --assets-base out/
 
 Outputs in <work-dir>:
   content.json                     extracted content (from extract_content.py)
@@ -131,8 +133,10 @@ def main() -> int:
     parser.add_argument("--work-dir", required=True, type=Path)
     parser.add_argument(
         "--template", required=True,
-        help="template name (e.g., horizontal-timeline / grid-2x3 / "
-             "feature-list). Pick based on content judgment, not item count.",
+        help="preset template name. Only `claude-code` is available now; "
+             "the previous fixed templates (horizontal-timeline / grid-2x3 / "
+             "feature-list) were removed in favour of free-form agent-"
+             "designed layouts via apply_layout.py.",
     )
     parser.add_argument("--theme", type=Path)
     parser.add_argument("--skip-repair", action="store_true",
@@ -146,10 +150,9 @@ def main() -> int:
 
     if args.auto:
         parser.error(
-            "--auto was removed. Template selection is now agent-driven: "
-            "run extract_content.py to produce content.json, look at it + "
-            "the original render PNG, decide which template fits the content "
-            "(timeline / grid / feature-list), then pass --template <name>."
+            "--auto was removed. The only preset template is `claude-code`; "
+            "for everything else use the free-form agent-designed layout "
+            "via apply_layout.py (see this file's docstring)."
         )
 
     summary = regenerate(

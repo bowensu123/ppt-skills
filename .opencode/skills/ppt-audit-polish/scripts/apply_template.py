@@ -4,8 +4,12 @@ The output deck has ONE slide regenerated from scratch using the template.
 The original deck is never modified.
 
 CLI:
-  python apply_template.py --content content.json --template horizontal-timeline \
-      --out out.pptx [--theme themes/clean-tech.json] [--slide-width 12192000]
+  python apply_template.py --content content.json --template claude-code \
+      --out out.pptx [--theme themes/claude-code.json] [--slide-width 12192000]
+
+  Only `claude-code` remains as a preset template. For any other
+  layout direction, use the free-form `apply_layout.py` instead —
+  the agent designs every element's bbox and style explicitly.
 """
 from __future__ import annotations
 
@@ -27,7 +31,7 @@ TEMPLATES_DIR = SKILL_ROOT / "templates_py"
 
 
 def _load_template_module(template_name: str):
-    """Load a template module by its NAME constant (e.g., 'horizontal-timeline')."""
+    """Load a template module by its NAME constant (e.g., 'claude-code')."""
     candidates = list(TEMPLATES_DIR.glob("*.py"))
     for path in candidates:
         if path.name.startswith("_"):
@@ -99,7 +103,7 @@ def apply_template(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--content", type=Path, help="content JSON from extract_content.py")
-    parser.add_argument("--template", help="template name (e.g., horizontal-timeline)")
+    parser.add_argument("--template", help="template name (only claude-code is available)")
     parser.add_argument("--out", type=Path, help="output .pptx")
     parser.add_argument("--theme", type=Path, help="theme JSON; defaults to template's preferred or clean-tech")
     parser.add_argument("--slide-width", type=int, default=12192000)
