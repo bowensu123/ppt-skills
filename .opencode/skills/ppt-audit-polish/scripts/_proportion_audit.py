@@ -44,10 +44,11 @@ from statistics import median
 
 # ---- design heuristics ----
 
-# Icon size as a fraction of card area:
-ICON_AREA_RATIO_TARGET = 0.12     # sweet spot: ~12% of card
-ICON_AREA_RATIO_MIN = 0.05        # below this → icon undersized
-ICON_AREA_RATIO_MAX = 0.30        # above this → icon oversized
+# Icon size as a fraction of card area. Conservative target — emoji
+# / icon should accent content, not dominate the card.
+ICON_AREA_RATIO_TARGET = 0.08     # sweet spot: ~8% of card
+ICON_AREA_RATIO_MIN = 0.03        # below this → icon undersized
+ICON_AREA_RATIO_MAX = 0.20        # above this → icon oversized
 
 # Card emptiness:
 CARD_EMPTY_RATIO_THRESHOLD = 0.55  # > 55% empty area = uncomfortably sparse
@@ -60,8 +61,9 @@ ICON_VS_TITLE_RATIO_MIN = 1.5     # icon-pt should be > 1.5x title-pt
 TOP_HEAVY_RATIO = 4.0
 
 # Card identification:
-CARD_MIN_W_EMU = 1500000     # ~1.6"
-CARD_MIN_H_EMU = 1000000     # ~1.1"
+CARD_MIN_W_EMU = 1500000           # ~1.6"
+CARD_MIN_H_EMU = 1000000           # ~1.1"
+CARD_MAX_AREA_FRACTION = 0.80      # > 80% of slide = slide bg, not a card
 
 # Icon text characters (single emoji or short label like "01")
 ICON_TEXT_MAX_CHARS = 4
@@ -79,14 +81,25 @@ def _bbox_contains_center(outer: dict, inner: dict, slack: int = 91440) -> bool:
     )
 
 
-def _is_card(obj: dict) -> bool:
-    return (
-        not obj.get("anomalous")
-        and obj.get("kind") == "container"
-        and obj.get("width", 0) >= CARD_MIN_W_EMU
-        and obj.get("height", 0) >= CARD_MIN_H_EMU
-        and obj.get("fill_hex")
-    )
+def _is_card(obj: dict, slide_w: int = 0, slide_h: int = 0) -> bool:
+    """A 'card' is a filled container that's clearly a content panel —
+    NOT the slide-background rectangle. Anything covering > 80% of the
+    slide is treated as background chrome, not a card.
+    """
+    if obj.get("anomalous"):
+        return False
+    if obj.get("kind") != "container":
+        return False
+    if not obj.get("fill_hex"):
+        return False
+    w = obj.get("width", 0); h = obj.get("height", 0)
+    if w < CARD_MIN_W_EMU or h < CARD_MIN_H_EMU:
+        return False
+    if slide_w > 0 and slide_h > 0:
+        slide_area = slide_w * slide_h
+        if slide_area > 0 and (w * h) / slide_area > CARD_MAX_AREA_FRACTION:
+            return False
+    return True
 
 
 def _max_font_pt(obj: dict) -> float:
@@ -374,9 +387,16 @@ def _detect_top_heavy(card: dict, children: list[dict]) -> list[dict]:
 # ---- top-level orchestrator ----
 
 def detect_proportion_issues(slide: dict) -> list[dict]:
-    """Run all proportion checks across every card on a slide."""
+    """Run all proportion checks across every card on a slide.
+
+    Slide dimensions (when available in `slide`) are used to filter out
+    the slide-background container that python-pptx's master-inheritance
+    walk sometimes surfaces as a top-level shape.
+    """
     objects = slide.get("objects", [])
-    cards = [o for o in objects if _is_card(o)]
+    slide_w = int(slide.get("width_emu", 0))
+    slide_h = int(slide.get("height_emu", 0))
+    cards = [o for o in objects if _is_card(o, slide_w, slide_h)]
     issues: list[dict] = []
     for card in cards:
         children = _children_inside(card, objects)
