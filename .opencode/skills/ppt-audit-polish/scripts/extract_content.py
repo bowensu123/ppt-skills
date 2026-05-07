@@ -13,14 +13,26 @@ Output shape:
       {
         "name": "Zero-shot",        # card title
         "description": "...",        # card body / paragraph
-        "icon": "💬",                # leading icon if any (emoji or pictogram char)
+        "icon": "💬",                # leading character glyph if any (emoji)
         "details": ["优点: ...", "局限: ..."],  # short labels under the body
-        "extra": "0 个示例"          # optional secondary header (e.g., "0 examples")
+        "extra": "0 个示例",         # optional secondary header (e.g., "0 examples")
+        "image": null               # OPTIONAL: {"path": "assets/sid_42.png",
+                                    #  "asset_id": "a01"} — set by AGENT after
+                                    # reading assets-manifest.json + annotated
+                                    # render. The deterministic extractor leaves
+                                    # this null; semantic image→item attribution
+                                    # is left to the multimodal model.
       },
       ...
     ],
     "footer": "...",                 # bottom band line
-    "footer_secondary": "..."       # second bottom-band line (smaller)
+    "footer_secondary": "...",      # second bottom-band line (smaller)
+    "decorations": []               # OPTIONAL: list of slide-level images that
+                                    # are NOT item icons (logos, accent bars,
+                                    # background graphics). Each entry:
+                                    # {"asset_id", "path", "left", "top",
+                                    #  "width", "height"}. Agent populates from
+                                    # assets-manifest.json after attribution.
   }
 
 Detection mirrors detect_roles.py heuristics (title = largest font in upper

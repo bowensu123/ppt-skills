@@ -6,8 +6,8 @@ card.
 from __future__ import annotations
 
 from _base import (
-    add_blank_slide, add_rect, add_rounded_rect, add_text,
-    truncate, wipe_slides,
+    add_blank_slide, add_image_from_path, add_rect, add_rounded_rect,
+    add_text, aspect_fit_box, truncate, wipe_slides,
 )
 
 
@@ -85,14 +85,24 @@ def render(prs, content: dict, theme) -> dict:
         # Soft accent strip on the left edge of each card.
         add_rect(slide, x, y, 91440, cell_h, fill=primary, line="none")
 
-        # Number badge (top-left of card body).
+        # Top-left "icon slot": item image if the agent attributed one,
+        # else a numbered badge as fallback.
         pad = 274320
         badge_size = 365760
-        add_rounded_rect(slide, x + pad, y + pad, badge_size, badge_size,
-                         fill=primary_soft, line="none", corner_ratio=0.3)
-        add_text(slide, x + pad, y + pad, badge_size, badge_size, f"{idx + 1:02d}",
-                 size_pt=14, bold=True, color=primary, family=family,
-                 align="center", v_align="middle")
+        item_image = item.get("image")
+        if item_image and item_image.get("path"):
+            # Render image inside the badge box, aspect-fit centered.
+            ox, oy, fw, fh = aspect_fit_box(badge_size, badge_size,
+                                            badge_size, badge_size)
+            add_image_from_path(slide, item_image["path"],
+                                x + pad + ox, y + pad + oy, fw, fh)
+        else:
+            add_rounded_rect(slide, x + pad, y + pad, badge_size, badge_size,
+                             fill=primary_soft, line="none", corner_ratio=0.3)
+            add_text(slide, x + pad, y + pad, badge_size, badge_size,
+                     f"{idx + 1:02d}",
+                     size_pt=14, bold=True, color=primary, family=family,
+                     align="center", v_align="middle")
 
         # Name.
         name_x = x + pad + badge_size + 182880
@@ -126,5 +136,18 @@ def render(prs, content: dict, theme) -> dict:
                          size_pt=9, bold=True, color=primary, family=family,
                          align="center", v_align="middle")
                 chip_x += chip_w + 91440
+
+    # Slide-level decorations: images the agent flagged as logo / chrome
+    # (not item icons). Render at the original PPTX coordinates so they
+    # land exactly where they were in the source deck.
+    for deco in (content.get("decorations") or []):
+        path = deco.get("path")
+        if not path:
+            continue
+        add_image_from_path(slide, path,
+                            int(deco.get("left", 0)),
+                            int(deco.get("top", 0)),
+                            int(deco.get("width", 0)),
+                            int(deco.get("height", 0)))
 
     return {"warnings": warnings, "items_rendered": n}

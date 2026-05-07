@@ -195,18 +195,89 @@ OUTPUT
   Tell the user: final score, what was fixed (cite the diff blocks), file path.
 ```
 
-## Path B: Regenerate (template-based)
+## Path B: Regenerate (free-form, agent-designed layout)
 
-When polish ceiling is too low, regenerate produces a fresh slide using a pre-built template. **Template selection is agent-driven** — there is no `--auto` heuristic. Item count alone cannot tell whether 4 items are 4 sequential steps or 4 parallel features, so YOU (the agent) read the content + look at the original deck and decide.
+When polish ceiling is too low, regenerate produces a fresh slide. **The layout itself is fully agent-designed** — no fixed grid, no fixed columns, no preset template selection. The agent reads the original deck's content + assets + render, then designs the *entire* layout via a JSON spec.
 
-### Available templates
+A small set of **preset templates** are kept as a fallback for batch / time-pressured cases, but the headline path is free-form.
+
+### Free-form path (recommended)
+
+The agent does the layout design; rules just extract content + assets and render the agent's spec.
+
+```
+INPUT: deck.pptx
+   ↓
+[1] extract_content.py    → content.json     (text: title/subtitle/items[]/footer)
+[2] _asset_extract.py     → assets-manifest.json + assets/sid_*.png  (binary images)
+[3] state_summary.py      → render PNG + annotated PNG
+   ↓
+[4] AGENT (multimodal):
+     reads content.json + assets-manifest.json + annotated render
+     decides:
+       - Is content sequential / parallel / hierarchical / hybrid?
+       - How many columns / rows fit best for THIS item count and aspect ratio?
+       - Where should the title go? Big-and-centered, top-left, or sidebar?
+       - Which images map to which items? (image-attribution)
+       - Which images are decorations (logo/chrome) and stay at original coords?
+     writes:
+       - layout.json   (free-form layout spec: every element's bbox + style)
+       - updates items[].image / decorations[] in content.json
+   ↓
+[5] apply_layout.py       → fresh.pptx       (renders layout.json + content.json)
+   ↓
+[6] state_summary.py --diff-from deck.pptx   → final 3-part report
+```
+
+#### layout.json schema (the agent writes this)
+
+```json
+{
+  "background": "0F0F0F",
+  "elements": [
+    {"kind": "fill", "bbox": [0,0,12192000,6858000], "color": "0F0F0F"},
+    {"kind": "rect", "bbox": [0,0,12192000,60960], "fill": "D97757"},
+
+    {"kind": "text", "bbox": [457200, 365760, 11000000, 411480],
+     "ref": "title", "size_pt": 28, "bold": true, "color": "F5F5F5",
+     "font": "Consolas", "align": "left"},
+
+    {"kind": "rounded_rect", "bbox": [457200, 1500000, 5400000, 1800000],
+     "fill": "1A1A1A", "border": "333333", "border_pt": 0.75, "corner_ratio": 0.04},
+    {"kind": "image", "bbox": [685800, 1700000, 274320, 274320],
+     "ref": "items.0.image"},
+    {"kind": "text", "bbox": [1100000, 1700000, 4000000, 274320],
+     "ref": "items.0.name", "size_pt": 14, "bold": true, "color": "F5F5F5"}
+    /* ...repeat for each item, freely positioned... */
+  ]
+}
+```
+
+`kind` ∈ `fill | rect | rounded_rect | circle | line | text | image`.
+`ref` is a dotted path into content.json (e.g., `items.0.name`,
+`items.3.description`, `items.0.image`). Items can be reordered, omitted,
+or rendered with custom field combinations — the agent decides everything.
+
+#### Required step from agent
+
+After reading content + manifest + annotated render, the agent MUST:
+
+1. **Reason about layout fit in one sentence** ("8 items + sequential numbering + most have icons → vertical-list with item icons on left, text on right").
+2. **Write `layout.json`** with all elements positioned. Use whole-slide EMU values (slide is 12192000 × 6858000 by default).
+3. **Update content.json** by setting `items[i].image = {"path": "assets/sid_<N>.<ext>", "asset_id": "aXX"}` for each item-icon attribution, and pushing logos/chrome to `decorations[]`.
+4. Run `apply_layout.py --content content.json --layout layout.json --out fresh.pptx`.
+5. Read the resulting render with the Read tool. Iterate the layout if the visual is wrong.
+
+### Preset templates (fallback path)
+
+When the agent doesn't want to design from scratch (batch jobs, simple decks), use a preset:
 
 | Template | Best for | Pick when… |
 |---|---|---|
-| `horizontal-timeline` | Process steps, stages, comparison classes | Items are sequential / ordered (Step 1→2→3, Zero-shot → Few-shot → Many-shot, before→after). The original deck likely had connector arrows or numeric prefixes. |
-| `grid-2x3` | Independent feature/benefit lists | Items are parallel and exchangeable (Performance / Security / Cost / Reliability). Order doesn't matter. |
-| `feature-list` | One hero topic, items are secondary | Title is the spotlight; items are short bullets supporting it. Works for any item count including 0. |
-| `claude-code` | Dev tools, AI products, code/agent showcases | Content is technical (CLIs, agents, code features, model docs). Renders with terminal aesthetic — dark background, coral prompt prefixes, monospace cards. Pairs with the `claude-code` theme. |
+| `horizontal-timeline` | Process steps, stages, comparison classes | Items are sequential / ordered. Original deck likely had connector arrows or numeric prefixes. |
+| `grid-2x3` | Independent feature/benefit lists | Items are parallel and exchangeable. Order doesn't matter. Now renders item images in the badge slot if attributed. |
+| `feature-list` | One hero topic, items are secondary | Title is the spotlight; items are short bullets supporting it. |
+| `claude-code` | Dev tools, AI products, code/agent showcases | Technical content with CLI/code aesthetic. Now renders item images replacing the chevron when attributed. Pairs with the `claude-code` theme. |
 
 ### Inspecting available templates
 

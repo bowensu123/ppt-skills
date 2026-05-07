@@ -17,8 +17,8 @@ Works with any theme but looks best on dark palettes.
 from __future__ import annotations
 
 from _base import (
-    add_blank_slide, add_rect, add_rounded_rect, add_text,
-    truncate, wipe_slides,
+    add_blank_slide, add_image_from_path, add_rect, add_rounded_rect,
+    add_text, aspect_fit_box, truncate, wipe_slides,
 )
 
 
@@ -125,18 +125,28 @@ def render(prs, content: dict, theme) -> dict:
         add_rect(slide, x, y, 36576, cell_h, fill=primary, line="none")
 
         pad = 228600
-        # Top-left header: "▸ NN  <name>" (coral chevron + zero-padded number)
+        # Top-left header: image if attributed, else "▸ NN" chevron + number
         chev_w = 137160
         num_w = 365760
         header_y = y + pad
-        add_text(slide, x + pad, header_y, chev_w, 274320, "▸",
-                 size_pt=12, bold=True, color=primary, family=family,
-                 align="left", v_align="middle")
-        add_text(slide, x + pad + chev_w, header_y, num_w, 274320,
-                 f"{idx + 1:02d}",
-                 size_pt=11, bold=True, color=primary, family=family,
-                 align="left", v_align="middle")
-        name_x = x + pad + chev_w + num_w
+        item_image = item.get("image")
+        if item_image and item_image.get("path"):
+            # Replace the chevron+number with a small icon (square fits the
+            # header band height ~274320 EMU). Aspect-fit centered.
+            icon_box = 274320
+            ox, oy, fw, fh = aspect_fit_box(icon_box, icon_box, icon_box, icon_box)
+            add_image_from_path(slide, item_image["path"],
+                                x + pad + ox, header_y + oy, fw, fh)
+            name_x = x + pad + icon_box + 91440
+        else:
+            add_text(slide, x + pad, header_y, chev_w, 274320, "▸",
+                     size_pt=12, bold=True, color=primary, family=family,
+                     align="left", v_align="middle")
+            add_text(slide, x + pad + chev_w, header_y, num_w, 274320,
+                     f"{idx + 1:02d}",
+                     size_pt=11, bold=True, color=primary, family=family,
+                     align="left", v_align="middle")
+            name_x = x + pad + chev_w + num_w
         name_w = cell_w - (name_x - x) - pad
         name = truncate(item.get("name") or f"item-{idx + 1:02d}", 28)
         add_text(slide, name_x, header_y, name_w, 274320, name,
@@ -185,5 +195,16 @@ def render(prs, content: dict, theme) -> dict:
                  truncate(footer_combined, 140),
                  size_pt=10, color=text_muted, family=family,
                  align="left", v_align="middle")
+
+    # Slide-level decorations (logos / chrome): render at original coords.
+    for deco in (content.get("decorations") or []):
+        path = deco.get("path")
+        if not path:
+            continue
+        add_image_from_path(slide, path,
+                            int(deco.get("left", 0)),
+                            int(deco.get("top", 0)),
+                            int(deco.get("width", 0)),
+                            int(deco.get("height", 0)))
 
     return {"warnings": warnings, "items_rendered": n}

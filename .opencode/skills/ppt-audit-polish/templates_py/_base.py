@@ -127,3 +127,47 @@ def add_blank_slide(prs):
     if blank_layout is None:
         blank_layout = prs.slide_layouts[6] if len(prs.slide_layouts) > 6 else prs.slide_layouts[0]
     return prs.slides.add_slide(blank_layout)
+
+
+def add_image_from_path(slide, image_path, left, top, width, height) -> object | None:
+    """Drop a binary image into the slide at the given EMU coordinates.
+
+    Returns the picture shape on success, None on failure (missing file,
+    unsupported format). Used by templates to render `items[i].image`
+    attributions the agent set on the content JSON.
+
+    The image is fit-stretched into the box; preserve-aspect should be
+    handled by the caller (compute width/height to match the original
+    aspect ratio if you care about it).
+    """
+    from pathlib import Path
+    p = Path(image_path)
+    if not p.exists():
+        return None
+    try:
+        return slide.shapes.add_picture(
+            str(p), Emu(left), Emu(top), Emu(width), Emu(height),
+        )
+    except (ValueError, OSError, KeyError):
+        return None
+
+
+def aspect_fit_box(content_w: int, content_h: int,
+                    box_w: int, box_h: int) -> tuple[int, int, int, int]:
+    """Center an image of (content_w, content_h) inside (box_w, box_h),
+    preserving aspect. Returns (offset_x, offset_y, fit_w, fit_h) in
+    the same units as inputs.
+    """
+    if content_w <= 0 or content_h <= 0 or box_w <= 0 or box_h <= 0:
+        return (0, 0, box_w, box_h)
+    src_ratio = content_w / content_h
+    box_ratio = box_w / box_h
+    if src_ratio > box_ratio:
+        # Width-bound
+        fit_w = box_w
+        fit_h = int(box_w / src_ratio)
+    else:
+        # Height-bound
+        fit_h = box_h
+        fit_w = int(box_h * src_ratio)
+    return ((box_w - fit_w) // 2, (box_h - fit_h) // 2, fit_w, fit_h)
