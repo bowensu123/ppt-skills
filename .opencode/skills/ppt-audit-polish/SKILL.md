@@ -264,32 +264,51 @@ When polish ceiling is too low, regenerate produces a fresh slide. **The layout 
 
 A small set of **preset templates** are kept as a fallback for batch / time-pressured cases, but the headline path is free-form.
 
-### Free-form path (recommended)
+### 5-layer zero-blind-spot preservation
 
-The agent does the layout design; rules just extract content + assets and render the agent's spec.
+Path B captures EVERY visible element across 5 manifests. Together they
+guarantee no image, icon, emoji, or text is lost when regenerating:
+
+| Layer | Source | Captures | Used in layout.json as |
+|---|---|---|---|
+| **L1: text + emoji** | `extract_content.py` → `content.json` | Title / subtitle / items[].name / .description / .details / footer. Emoji are Unicode chars — preserved by UTF-8. | `kind: text` with `ref: title` etc. |
+| **L2: run-level format** | `extract_content.py` → `content.json` items[].name_runs / description_runs | Per-run font / size / bold / italic / color (mixed-format text). | `kind: rich_text` with `runs_ref: items.0.name_runs` |
+| **L3: pictures + raster icons** | `_asset_extract.py` → `assets-manifest.json` + `assets/sid_*.{ext}` | PNG / JPEG / SVG / EMF binaries via `shape.image.blob` — zero loss. | `kind: image` with `ref: items.0.image` |
+| **L4: vector decorations** | `_decoration_extract.py` → `decorations.json` | Custom-shape icons (OVAL / RECTANGLE / etc. with fills) — including inherited shapes from slide_layout + slide_master. | `kind: circle / rect / rounded_rect / line` with explicit fill/border |
+| **L5: full geometry** | `inspect_ppt.py` → `inspection.json` | Every shape's bbox / font / color / kind for cross-reference. | Read by agent for layout reasoning. |
+
+### Free-form flow
 
 ```
 INPUT: deck.pptx
    ↓
-[1] extract_content.py    → content.json     (text: title/subtitle/items[]/footer)
-[2] _asset_extract.py     → assets-manifest.json + assets/sid_*.png  (binary images)
-[3] state_summary.py      → render PNG + annotated PNG
+[1] extract_content.py    → content.json
+                            (title/subtitle/items[]/footer +
+                             name_runs/description_runs)
+[2] _asset_extract.py     → assets-manifest.json + assets/sid_*.png
+                            (binary images)
+[3] _decoration_extract.py → decorations.json
+                            (vector icons + inherited master/layout shapes)
+[4] state_summary.py      → render PNG + annotated PNG
    ↓
-[4] AGENT (multimodal):
-     reads content.json + assets-manifest.json + annotated render
+[5] AGENT (multimodal):
+     reads ALL 5 manifests above
      decides:
        - Is content sequential / parallel / hierarchical / hybrid?
-       - How many columns / rows fit best for THIS item count and aspect ratio?
-       - Where should the title go? Big-and-centered, top-left, or sidebar?
-       - Which images map to which items? (image-attribution)
-       - Which images are decorations (logo/chrome) and stay at original coords?
+       - How many columns / rows fit best for THIS item count?
+       - Where should the title go?
+       - Which images map to which items?
+       - Which decorations are item-icons vs slide-chrome?
+       - Should mixed-formatted titles use `rich_text` (preserve runs)
+         or `text` (theme-driven flat)?
      writes:
-       - layout.json   (free-form layout spec: every element's bbox + style)
+       - layout.json   (free-form layout spec; references all manifests
+                         via dotted refs into content.json)
        - updates items[].image / decorations[] in content.json
    ↓
-[5] apply_layout.py       → fresh.pptx       (renders layout.json + content.json)
+[6] apply_layout.py       → fresh.pptx
    ↓
-[6] state_summary.py --diff-from deck.pptx   → final 3-part report
+[7] state_summary.py --diff-from deck.pptx   → final 3-part report
 ```
 
 #### layout.json schema (the agent writes this)

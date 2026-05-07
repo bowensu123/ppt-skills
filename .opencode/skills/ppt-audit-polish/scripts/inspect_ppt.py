@@ -83,6 +83,58 @@ def _font_families(shape) -> list[str]:
     return families
 
 
+def _text_runs(shape) -> list[dict]:
+    """Per-run text content + formatting (font/size/bold/italic/color).
+
+    Captures everything needed to faithfully reconstruct mixed-format
+    text in a regenerated layout. Each run entry:
+      {text, font_family, size_pt, bold, italic, color_hex,
+       paragraph_index, run_index}
+    """
+    runs: list[dict] = []
+    if not getattr(shape, "has_text_frame", False):
+        return runs
+    try:
+        from pptx.util import Pt
+    except ImportError:
+        return runs
+    for p_idx, paragraph in enumerate(shape.text_frame.paragraphs):
+        for r_idx, run in enumerate(paragraph.runs):
+            try:
+                text = run.text or ""
+            except (AttributeError, ValueError):
+                continue
+            if not text:
+                continue
+            font = run.font
+            size_pt: float | None = None
+            try:
+                if font.size is not None:
+                    size_pt = float(font.size) / Pt(1)
+                elif paragraph.font.size is not None:
+                    size_pt = float(paragraph.font.size) / Pt(1)
+            except (AttributeError, ValueError):
+                pass
+            color_hex: str | None = None
+            try:
+                if font.color is not None and font.color.type is not None \
+                        and font.color.rgb is not None:
+                    color_hex = str(font.color.rgb)
+            except (AttributeError, ValueError, KeyError):
+                pass
+            runs.append({
+                "text": text,
+                "font_family": getattr(font, "name", None),
+                "size_pt": size_pt,
+                "bold": bool(getattr(font, "bold", False)) if font.bold is not None else None,
+                "italic": bool(getattr(font, "italic", False)) if font.italic is not None else None,
+                "color_hex": color_hex,
+                "paragraph_index": p_idx,
+                "run_index": r_idx,
+            })
+    return runs
+
+
 def _fill_hex(shape) -> str | None:
     try:
         fill = shape.fill
@@ -205,6 +257,7 @@ def _emit_object(slide_index: int, object_index: int, shape) -> dict:
     text = _shape_text(shape)
     font_sizes = _font_sizes(shape)
     font_families = _font_families(shape)
+    text_runs = _text_runs(shape)
     is_anomalous = width <= 0 or height <= 0
 
     out = {
@@ -224,6 +277,7 @@ def _emit_object(slide_index: int, object_index: int, shape) -> dict:
         "text": text,
         "font_sizes": font_sizes,
         "font_families": font_families,
+        "text_runs": text_runs,
         "fill_hex": _fill_hex(shape),
         "line_hex": _line_hex(shape),
         "text_color": _text_first_color(shape),

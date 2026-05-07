@@ -153,6 +153,12 @@ def _shape_text(objects: list[dict], shape_id: int | None) -> str:
     return ""
 
 
+def _runs_of(shape_obj: dict) -> list[dict]:
+    """Surface the per-run formatting array from an inspect_ppt entry.
+    Empty list when the shape has no runs (e.g. picture)."""
+    return list(shape_obj.get("text_runs") or [])
+
+
 def _extract_items(slide_objects: list[dict], cards: list[dict]) -> list[dict]:
     items = []
     for card in cards:
@@ -165,7 +171,14 @@ def _extract_items(slide_objects: list[dict], cards: list[dict]) -> list[dict]:
         text_children = [c for c in children if c.get("kind") == "text" and c.get("text")]
         text_children.sort(key=lambda c: (c["top"], c["left"]))
 
-        item: dict = {"name": "", "description": "", "icon": "", "details": [], "extra": ""}
+        item: dict = {
+            "name": "", "description": "", "icon": "",
+            "details": [], "extra": "",
+            # NEW: per-run formatting preserved for faithful regeneration.
+            "name_runs": [], "description_runs": [],
+            # NEW: source shape ids so the agent / mutate ops can correlate.
+            "source_shape_ids": {},
+        }
 
         # Heuristic ordering: icon (emoji/symbol), name (largest font), extra (numeric/short),
         # description (longest), details (short trailing labels containing colons)
@@ -188,6 +201,8 @@ def _extract_items(slide_objects: list[dict], cards: list[dict]) -> list[dict]:
             tops.sort(key=lambda c: -(max(c["font_sizes"]) if c["font_sizes"] else 0))
             if tops:
                 item["name"] = tops[0]["text"].strip()
+                item["name_runs"] = _runs_of(tops[0])
+                item["source_shape_ids"]["name"] = tops[0]["shape_id"]
 
         # Description: longest paragraph-like text in mid band.
         body_candidates = [
@@ -199,6 +214,8 @@ def _extract_items(slide_objects: list[dict], cards: list[dict]) -> list[dict]:
         if body_candidates:
             body_candidates.sort(key=lambda c: -len(c["text"]))
             item["description"] = body_candidates[0]["text"].strip()
+            item["description_runs"] = _runs_of(body_candidates[0])
+            item["source_shape_ids"]["description"] = body_candidates[0]["shape_id"]
 
         # Extra: short label like "0 个示例", "1 个示例" near the icon.
         mid_top = card["top"] + card["height"] * 0.55

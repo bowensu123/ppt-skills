@@ -171,3 +171,76 @@ def aspect_fit_box(content_w: int, content_h: int,
         fit_h = box_h
         fit_w = int(box_h * src_ratio)
     return ((box_w - fit_w) // 2, (box_h - fit_h) // 2, fit_w, fit_h)
+
+
+def add_rich_text(slide, left, top, width, height, runs: list[dict], *,
+                  default_size_pt: float = 11,
+                  default_color: str = "393939",
+                  default_family: str | None = None,
+                  align: str = "left", v_align: str = "top",
+                  fill: str | None = None) -> object:
+    """Render a text frame with mixed-format runs.
+
+    Each run is a dict with keys:
+      text, font_family, size_pt, bold, italic, color_hex,
+      paragraph_index (optional), run_index (optional)
+
+    Runs sharing the same paragraph_index land in the same paragraph.
+    Missing format fields fall back to the `default_*` parameters. This
+    preserves bold/italic/colored words in titles or descriptions that
+    Path B would otherwise flatten to plain text.
+    """
+    box = slide.shapes.add_textbox(Emu(left), Emu(top), Emu(width), Emu(height))
+    tf = box.text_frame
+    tf.text = ""
+    tf.word_wrap = True
+    if v_align == "middle":
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    elif v_align == "bottom":
+        tf.vertical_anchor = MSO_ANCHOR.BOTTOM
+    else:
+        tf.vertical_anchor = MSO_ANCHOR.TOP
+
+    if fill is not None:
+        box.fill.solid(); box.fill.fore_color.rgb = _hex(fill)
+    try:
+        box.line.fill.background()
+    except (AttributeError, ValueError):
+        pass
+
+    align_map = {
+        "left": PP_ALIGN.LEFT, "center": PP_ALIGN.CENTER,
+        "right": PP_ALIGN.RIGHT, "justify": PP_ALIGN.JUSTIFY,
+    }
+    pp_align = align_map.get(align, PP_ALIGN.LEFT)
+
+    # Group runs by paragraph_index. Default to a single paragraph.
+    by_para: dict[int, list[dict]] = {}
+    for run in runs:
+        p_idx = int(run.get("paragraph_index", 0) or 0)
+        by_para.setdefault(p_idx, []).append(run)
+    if not by_para:
+        return box
+
+    para_indices = sorted(by_para.keys())
+    for i, p_idx in enumerate(para_indices):
+        if i == 0:
+            para = tf.paragraphs[0]
+        else:
+            para = tf.add_paragraph()
+        para.alignment = pp_align
+        for run_data in by_para[p_idx]:
+            r = para.add_run()
+            r.text = run_data.get("text", "")
+            r.font.size = Pt(float(run_data.get("size_pt") or default_size_pt))
+            if run_data.get("bold") is not None:
+                r.font.bold = bool(run_data["bold"])
+            if run_data.get("italic") is not None:
+                r.font.italic = bool(run_data["italic"])
+            color = run_data.get("color_hex") or default_color
+            if color:
+                r.font.color.rgb = _hex(color)
+            family = run_data.get("font_family") or default_family
+            if family:
+                r.font.name = family
+    return box

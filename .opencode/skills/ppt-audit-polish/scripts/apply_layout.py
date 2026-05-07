@@ -32,6 +32,13 @@ Layout JSON schema:
        "size_pt": 24, "bold": true, "italic": false,
        "color": "F5F5F5", "font": "Consolas",
        "align": "left|center|right", "v_align": "top|middle|bottom"},
+      {"kind": "rich_text",
+       "bbox": [...],
+       "runs": [...]                  // inline list of run dicts OR
+       "runs_ref": "items.0.name_runs",  // dotted path to a runs list
+       "default_size_pt": 14, "default_color": "F5F5F5",
+       "default_font": "Microsoft YaHei",
+       "align": "left", "v_align": "middle"},
       {"kind": "image", "bbox": [...],
        "path": "assets/sid_42.png",   // direct path OR
        "ref": "items.0.image"},        // dotted path to image dict
@@ -91,8 +98,8 @@ def render_layout(layout: dict, content: dict, out_path: Path,
     if str(TEMPLATES_DIR) not in sys.path:
         sys.path.insert(0, str(TEMPLATES_DIR))
     from _base import (
-        add_blank_slide, add_image_from_path, add_rect, add_rounded_rect,
-        add_text, wipe_slides,
+        add_blank_slide, add_image_from_path, add_rect, add_rich_text,
+        add_rounded_rect, add_text, wipe_slides,
     )
     # add_circle and add_line aren't exported by _base (line uses connector
     # API directly); use python-pptx primitives where _base helpers don't fit.
@@ -193,6 +200,28 @@ def render_layout(layout: dict, content: dict, out_path: Path,
                      align=el.get("align", "left"),
                      v_align=el.get("v_align", "top"),
                      fill=el.get("fill"))
+            rendered_count += 1
+
+        elif kind == "rich_text":
+            # Multi-run text with mixed formatting.
+            # `runs` can be inline (in the layout element) OR resolved
+            # via `runs_ref` into content.json (e.g., "items.0.name_runs").
+            runs = el.get("runs")
+            if not runs and el.get("runs_ref"):
+                resolved = _resolve_ref(content, el["runs_ref"])
+                if isinstance(resolved, list):
+                    runs = resolved
+            if not runs:
+                skipped.append({"reason": "rich-text-no-runs",
+                                "ref": el.get("runs_ref")})
+                continue
+            add_rich_text(slide, bbox[0], bbox[1], bbox[2], bbox[3], runs,
+                          default_size_pt=float(el.get("default_size_pt", 11)),
+                          default_color=el.get("default_color", "393939"),
+                          default_family=el.get("default_font"),
+                          align=el.get("align", "left"),
+                          v_align=el.get("v_align", "top"),
+                          fill=el.get("fill"))
             rendered_count += 1
 
         elif kind == "image":
