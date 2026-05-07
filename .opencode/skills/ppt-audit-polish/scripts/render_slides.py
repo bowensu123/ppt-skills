@@ -1,3 +1,17 @@
+"""Render slides to PNG (and optionally SVG) via LibreOffice.
+
+PNG is what the agent looks at visually. SVG is a *post-render* geometric
+representation — it tells us what the renderer actually drew (text wrap
+bounds, font fallback, connector snap), which the PPTX-XML-only signal
+cannot. SVG is consumed by `_svg_geom.py` to surface signals that
+`score_layout.py` then turns into `text-overflow`, `font-fallback`,
+`z-order-real-drift`, and `connector-snap-drift` issues.
+
+Outputs (under --output-dir):
+  pdf/<stem>.pdf
+  slide-001.png, slide-002.png, ...
+  svg/<stem>.svg                       (only when --also-svg is passed)
+"""
 from __future__ import annotations
 
 import argparse
@@ -28,7 +42,7 @@ def _find_soffice() -> str | None:
     return None
 
 
-def render_slides(input_path: Path, output_dir: Path) -> dict:
+def render_slides(input_path: Path, output_dir: Path, also_svg: bool = False) -> dict:
     soffice = _find_soffice()
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -66,7 +80,39 @@ def render_slides(input_path: Path, output_dir: Path) -> dict:
         pixmap.save(image_path)
         images.append(str(image_path))
 
-    return {"status": "rendered", "reason": "", "images": images, "pdf": str(pdf_path)}
+    result = {"status": "rendered", "reason": "", "images": images, "pdf": str(pdf_path)}
+
+    if also_svg:
+        svg_dir = output_dir / "svg"
+        svg_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            subprocess.run(
+                [
+                    soffice,
+                    "--headless",
+                    "--convert-to",
+                    "svg",
+                    "--outdir",
+                    str(svg_dir),
+                    str(input_path),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            svg_path = svg_dir / f"{input_path.stem}.svg"
+            if svg_path.exists():
+                # LibreOffice emits ONE SVG containing every slide as a
+                # nested <g class="Slide">. Downstream parsers split by
+                # slide; we expose the bundle path here.
+                result["svg"] = str(svg_path)
+            else:
+                result["svg_error"] = "soffice ran but no svg produced"
+        except subprocess.CalledProcessError as exc:
+            # SVG failure must NOT break PNG rendering — it's a bonus signal.
+            result["svg_error"] = (exc.stderr or str(exc))[:200]
+
+    return result
 
 
 def main() -> int:
@@ -74,9 +120,15 @@ def main() -> int:
     parser.add_argument("--input", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--manifest", required=True)
+    parser.add_argument(
+        "--also-svg", action="store_true",
+        help="In addition to PNG, run soffice --convert-to svg so "
+             "_svg_geom.py can extract post-render geometry signals "
+             "(text overflow, font fallback, connector snap).",
+    )
     args = parser.parse_args()
 
-    manifest = render_slides(Path(args.input), Path(args.output_dir))
+    manifest = render_slides(Path(args.input), Path(args.output_dir), also_svg=args.also_svg)
     manifest_path = Path(args.manifest)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")

@@ -220,7 +220,64 @@ def _gap_variance(items: list[dict]) -> int:
     return max(gaps) - min(gaps)
 
 
-def _collect_issues(slide: dict, role_data: dict) -> list[dict]:
+def _svg_signals_to_issues(svg_signals: dict | None, slide_index: int) -> list[dict]:
+    """Convert SVG-derived post-render signals into issue dicts.
+
+    Three signal types map to issues; connector-snap-drift is intentionally
+    excluded from issue surface (low severity, usually self-resolves).
+    """
+    if not svg_signals:
+        return []
+    out: list[dict] = []
+    for sig in svg_signals.get("text_overflow", []):
+        if sig.get("slide_index") != slide_index:
+            continue
+        out.append({
+            "category": "text-overflow",
+            "severity": "warning",
+            "shape_id": sig["shape_id"],
+            "message": (
+                f"Text in '{sig.get('name')}' overflows its frame: "
+                f"rendered ~{sig['rendered_height_emu']} EMU vs declared "
+                f"{sig['declared_height_emu']} EMU ({sig['wrap_lines']} wrapped lines)"
+            ),
+            "suggested_fix": "resize-or-shrink-font",
+            "svg_signal": sig,
+        })
+    for sig in svg_signals.get("font_fallback", []):
+        if sig.get("slide_index") != slide_index:
+            continue
+        out.append({
+            "category": "font-fallback",
+            "severity": "info",
+            "shape_id": sig["shape_id"],
+            "message": (
+                f"Renderer used {sig['rendered_fonts']} for '{sig.get('name')}' "
+                f"although the deck declares {sig['declared_fonts']} (font not "
+                f"installed on this system)"
+            ),
+            "suggested_fix": "unify-font",
+            "svg_signal": sig,
+        })
+    for sig in svg_signals.get("z_order_drift", []):
+        if sig.get("slide_index") != slide_index:
+            continue
+        out.append({
+            "category": "z-order-real-drift",
+            "severity": "warning",
+            "shape_id": sig["hides"],
+            "message": (
+                f"Shape #{sig['hides']} is hidden by #{sig['covers']} in the "
+                f"actual render even though declared z-order says otherwise "
+                f"(overlap {sig['overlap_ratio']})"
+            ),
+            "suggested_fix": "z-order-bring-to-front",
+            "svg_signal": sig,
+        })
+    return out
+
+
+def _collect_issues(slide: dict, role_data: dict, svg_signals: dict | None = None) -> list[dict]:
     issues: list[dict] = []
     width = slide["width_emu"]
     height = slide["height_emu"]
@@ -364,6 +421,11 @@ def _collect_issues(slide: dict, role_data: dict) -> list[dict]:
             issues.append(balance["issue"])
     except Exception:
         pass
+
+    # SVG-derived post-render signals (text-overflow, font-fallback,
+    # z-order-real-drift). These come from _svg_geom.extract_signals()
+    # which only runs when the caller passed --also-svg to render_slides.
+    issues.extend(_svg_signals_to_issues(svg_signals, slide["slide_index"]))
 
     return issues
 
@@ -524,13 +586,13 @@ def _collect_metrics(slide: dict, role_data: dict, issues: list[dict]) -> dict:
     }
 
 
-def score_layout(inspection: dict, roles_payload: dict) -> dict:
+def score_layout(inspection: dict, roles_payload: dict, svg_signals: dict | None = None) -> dict:
     role_by_slide = {s["slide_index"]: s for s in roles_payload["slides"]}
     slides = []
     aggregate_metrics: list[dict] = []
     for slide in inspection["slides"]:
         role_data = role_by_slide.get(slide["slide_index"], {"shapes": [], "rows": [], "columns": []})
-        issues = _collect_issues(slide, role_data)
+        issues = _collect_issues(slide, role_data, svg_signals=svg_signals)
         metrics = _collect_metrics(slide, role_data, issues)
         slides.append({
             "slide_index": slide["slide_index"],
@@ -561,11 +623,20 @@ def main() -> int:
     parser.add_argument("--inspection", required=True)
     parser.add_argument("--roles", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument(
+        "--svg-signals",
+        help="Optional path to a JSON dump of _svg_geom.extract_signals(). "
+             "When passed, post-render SVG-derived issues "
+             "(text-overflow / font-fallback / z-order-real-drift) are added.",
+    )
     args = parser.parse_args()
 
     inspection = json.loads(Path(args.inspection).read_text(encoding="utf-8"))
     roles_payload = json.loads(Path(args.roles).read_text(encoding="utf-8"))
-    findings = score_layout(inspection, roles_payload)
+    svg_signals = None
+    if args.svg_signals and Path(args.svg_signals).exists():
+        svg_signals = json.loads(Path(args.svg_signals).read_text(encoding="utf-8"))
+    findings = score_layout(inspection, roles_payload, svg_signals=svg_signals)
     Path(args.output).write_text(json.dumps(findings, indent=2, ensure_ascii=False), encoding="utf-8")
     return 0
 

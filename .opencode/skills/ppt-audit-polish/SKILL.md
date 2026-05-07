@@ -281,8 +281,7 @@ error message guiding the agent to the extract → judge → regenerate flow.
 | `inspect_ppt.py --input X --output Y.json` | geometry / fills / lines / fonts per shape | start of any session |
 | `detect_roles.py --inspection ins.json --output roles.json` | per-shape role + row/col/card groups | needed for score_layout |
 | `score_layout.py --inspection ins.json --roles roles.json --output find.json` | issues + 4 quantitative scores | rule-based detection |
-| `render_slides.py --input X --output-dir imgs --manifest m.json` | PNG per slide via LibreOffice | get visual to look at |
-| `diff_render.py --before A.png --after B.png --output d.json [--heatmap h.png]` | SSIM, pixel diff, heatmap | judge before/after |
+| `render_slides.py --input X --output-dir imgs --manifest m.json [--also-svg]` | PNG per slide via LibreOffice; `--also-svg` writes svg/ for post-render signal extraction | get visual to look at |
 | `self_critique.py --findings find.json --output crit.json` | weighted 0-100 score from metrics | rule-based score |
 | **`state_summary.py --in X --work-dir Y`** | **all-of-the-above bundled** | **use this every iteration** |
 

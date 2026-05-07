@@ -39,6 +39,42 @@ def _run(script_name: str, *args: str) -> None:
     subprocess.run([sys.executable, str(SCRIPT_DIR / script_name), *args], check=True)
 
 
+def _build_svg_signals(
+    input_path: Path, work_dir: Path, inspection_path: Path,
+    out_path: Path,
+) -> dict | None:
+    """Render the deck to SVG and extract post-render signals.
+
+    Returns the signal dict on success, or None if SVG was unavailable.
+    Output is also written to `out_path` for score_layout to consume.
+    """
+    svg_dir = work_dir / "svg-render"
+    manifest = work_dir / "svg-render-manifest.json"
+    try:
+        _run(
+            "render_slides.py",
+            "--input", str(input_path),
+            "--output-dir", str(svg_dir),
+            "--manifest", str(manifest),
+            "--also-svg",
+        )
+    except subprocess.CalledProcessError:
+        return None
+    mf = json.loads(manifest.read_text(encoding="utf-8"))
+    svg_path = mf.get("svg")
+    if not svg_path or not Path(svg_path).exists():
+        return None
+
+    # Lazy import — _svg_geom depends on lxml.
+    sys.path.insert(0, str(SCRIPT_DIR))
+    from _svg_geom import extract_signals
+
+    inspection = json.loads(inspection_path.read_text(encoding="utf-8"))
+    signals = extract_signals(Path(svg_path), inspection)
+    out_path.write_text(json.dumps(signals, ensure_ascii=False, indent=2), encoding="utf-8")
+    return signals
+
+
 def _suggest_mutate_argv(issue: dict) -> list[str] | None:
     """Map an issue to a ready-to-run mutate argv."""
     fix = issue.get("suggested_fix")
@@ -65,6 +101,15 @@ def _suggest_mutate_argv(issue: dict) -> list[str] | None:
         return None  # already handled by suggested_argv above
     if fix == "set-font-color" and sid:
         return None  # detector pre-bakes the color choice via suggested_argv
+    # SVG-derived signal fixes
+    if fix == "resize-or-shrink-font" and sid:
+        # Agent decides whether to grow the frame OR shrink the font; we
+        # surface BOTH options. They can pick one based on layout context.
+        return ["set-font-size", "--shape-id", str(sid), "--size-pt", "12"]
+    if fix == "unify-font":
+        return ["unify-font"]
+    if fix == "z-order-bring-to-front" and sid:
+        return ["bring-to-front", "--shape-ids", str(sid)]
     if fix in ("normalize-row-font", "manual-review"):
         return None
     return None
@@ -117,16 +162,35 @@ def summarize(
     skip_render: bool = False,
     diff_from: Path | None = None,
     top_k: int = 8,
+    skip_svg: bool = False,
 ) -> dict:
     work_dir.mkdir(parents=True, exist_ok=True)
     inspection = work_dir / "inspection.json"
     roles = work_dir / "roles.json"
     findings = work_dir / "findings.json"
     critique = work_dir / "critique.json"
+    svg_signals_path = work_dir / "svg-signals.json"
 
     _run("inspect_ppt.py", "--input", str(input_path), "--output", str(inspection))
     _run("detect_roles.py", "--inspection", str(inspection), "--output", str(roles))
-    _run("score_layout.py", "--inspection", str(inspection), "--roles", str(roles), "--output", str(findings))
+
+    # Run SVG export + post-render signal extraction BEFORE score_layout
+    # so it can fold the signals into its issue list. Failures are
+    # silenced — if soffice isn't available or SVG parse fails, score
+    # still produces normal output.
+    svg_signals_for_score = None
+    if not skip_render and not skip_svg:
+        try:
+            svg_signals_for_score = _build_svg_signals(
+                input_path, work_dir, inspection, svg_signals_path,
+            )
+        except Exception:
+            svg_signals_for_score = None
+
+    score_args = ["--inspection", str(inspection), "--roles", str(roles), "--output", str(findings)]
+    if svg_signals_for_score is not None and svg_signals_path.exists():
+        score_args.extend(["--svg-signals", str(svg_signals_path)])
+    _run("score_layout.py", *score_args)
     _run("self_critique.py", "--findings", str(findings), "--output", str(critique))
 
     insp_data = json.loads(inspection.read_text(encoding="utf-8"))
@@ -217,6 +281,17 @@ def summarize(
         except subprocess.CalledProcessError as exc:
             diff_info = {"status": "failed-to-inspect-previous", "reason": str(exc)[:200]}
 
+    svg_summary = None
+    if svg_signals_for_score is not None:
+        ms = svg_signals_for_score.get("match_stats", [])
+        svg_summary = {
+            "text_overflow_count": len(svg_signals_for_score.get("text_overflow", [])),
+            "font_fallback_count": len(svg_signals_for_score.get("font_fallback", [])),
+            "z_order_drift_count": len(svg_signals_for_score.get("z_order_drift", [])),
+            "match_stats": ms,
+            "signals_path": str(svg_signals_path) if svg_signals_path.exists() else None,
+        }
+
     summary = {
         "input": str(input_path),
         "score": crit_data.get("score"),
@@ -229,8 +304,11 @@ def summarize(
         "render": render_info,
         "diff": diff_info,
         "score_delta": score_delta,
+        "svg_signals": svg_summary,
         "next_step_hints": _next_step_hints(all_issues, crit_data),
-        "agent_report": _build_agent_report(crit_data, score_delta, diff_info, render_info),
+        "agent_report": _build_agent_report(
+            crit_data, score_delta, diff_info, render_info, svg_summary,
+        ),
     }
     write_json(work_dir / "state-summary.json", summary)
     return summary
@@ -272,11 +350,18 @@ def _compute_score_delta(prev_crit: dict, cur_crit: dict, prev_find: dict, cur_f
     }
 
 
-def _build_agent_report(crit: dict, score_delta: dict | None, diff: dict | None, render: dict) -> dict:
+def _build_agent_report(
+    crit: dict, score_delta: dict | None, diff: dict | None,
+    render: dict, svg_summary: dict | None = None,
+) -> dict:
     """A ready-to-paste 3-part report for the agent to use in STEP D.
 
     The agent can quote the `numeric_block` and `geometric_changes` directly,
     then add its own `visual_observation` and `final_decision`.
+
+    When SVG signals are present, an extra `svg_signal_summary` line
+    surfaces the post-render-only blindspots (text overflow, font fallback,
+    real z-order drift) that PPTX-XML inspection alone can't see.
     """
     metrics = crit.get("metrics") or {}
     if score_delta:
@@ -322,9 +407,21 @@ def _build_agent_report(crit: dict, score_delta: dict | None, diff: dict | None,
         if removed_n: parts.append(f"{removed_n} removed")
         geometric_summary = ", ".join(parts) if parts else "no shape geometry change"
 
+    svg_signal_summary = None
+    if svg_summary:
+        parts = []
+        if svg_summary["text_overflow_count"]:
+            parts.append(f"{svg_summary['text_overflow_count']} text-overflow")
+        if svg_summary["font_fallback_count"]:
+            parts.append(f"{svg_summary['font_fallback_count']} font-fallback")
+        if svg_summary["z_order_drift_count"]:
+            parts.append(f"{svg_summary['z_order_drift_count']} z-order-drift")
+        svg_signal_summary = ", ".join(parts) if parts else "no post-render signals"
+
     return {
         "numeric_block": "\n".join(numeric_lines),
         "geometric_changes": geometric_summary,
+        "svg_signal_summary": svg_signal_summary,
         "render_path": render.get("first_slide_png"),
         "decision_recommendation": recommendation,
         "instructions_for_agent": (
@@ -393,6 +490,12 @@ def main() -> int:
     parser.add_argument("--in", dest="in_path", required=True, type=Path)
     parser.add_argument("--work-dir", required=True, type=Path)
     parser.add_argument("--skip-render", action="store_true")
+    parser.add_argument(
+        "--skip-svg", action="store_true",
+        help="Skip SVG export + post-render signal extraction "
+             "(text-overflow / font-fallback / z-order-real-drift). "
+             "Saves ~1s per slide; use when you only need the PNG render.",
+    )
     parser.add_argument("--diff-from", type=Path, help="previous iteration's pptx for diff")
     parser.add_argument("--top-k", type=int, default=8)
     args = parser.parse_args()
@@ -403,6 +506,7 @@ def main() -> int:
         skip_render=args.skip_render,
         diff_from=args.diff_from,
         top_k=args.top_k,
+        skip_svg=args.skip_svg,
     )
     # Print compact JSON to stdout for the agent.
     sys.stdout.write(json.dumps(summary, ensure_ascii=False, indent=2) + "\n")

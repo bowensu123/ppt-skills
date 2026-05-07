@@ -31,7 +31,7 @@ Four layers, each composed of single-purpose scripts. Higher layers only call lo
                        |  - detect_roles.py          |
                        |  - score_layout.py          |
                        |  - render_slides.py         |
-                       |  - diff_render.py           |
+                       |  - _svg_geom.py             |
                        +--------------+--------------+
                                       |
                                       v

@@ -60,6 +60,29 @@ def _font_sizes(shape) -> list[int]:
     return sizes
 
 
+def _font_families(shape) -> list[str]:
+    """Distinct declared font family names across all runs in this shape.
+
+    Used by the SVG-based font-fallback detector: compares declared
+    families against what the renderer actually used.
+    """
+    families: list[str] = []
+    seen: set[str] = set()
+    if not getattr(shape, "has_text_frame", False):
+        return families
+    for paragraph in shape.text_frame.paragraphs:
+        for run in paragraph.runs:
+            name = getattr(run.font, "name", None)
+            if name and name not in seen:
+                seen.add(name)
+                families.append(name)
+        para_name = getattr(paragraph.font, "name", None)
+        if para_name and para_name not in seen:
+            seen.add(para_name)
+            families.append(para_name)
+    return families
+
+
 def _fill_hex(shape) -> str | None:
     try:
         fill = shape.fill
@@ -181,6 +204,7 @@ def _emit_object(slide_index: int, object_index: int, shape) -> dict:
     kind = _shape_kind(shape)
     text = _shape_text(shape)
     font_sizes = _font_sizes(shape)
+    font_families = _font_families(shape)
     is_anomalous = width <= 0 or height <= 0
 
     out = {
@@ -199,6 +223,7 @@ def _emit_object(slide_index: int, object_index: int, shape) -> dict:
         "rotation": float(getattr(shape, "rotation", 0.0) or 0.0),
         "text": text,
         "font_sizes": font_sizes,
+        "font_families": font_families,
         "fill_hex": _fill_hex(shape),
         "line_hex": _line_hex(shape),
         "text_color": _text_first_color(shape),
