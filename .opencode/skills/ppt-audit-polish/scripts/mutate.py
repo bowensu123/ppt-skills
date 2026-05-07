@@ -1034,6 +1034,74 @@ def cmd_repair_grid(args):
     return 0
 
 
+@op("polish",
+    "Apply business-grade visual polish without changing content: smart "
+    "typography (theme type-scale across detected roles), unified corner "
+    "radius and shadow, accent bar above title, footer divider, optional "
+    "subtle subtitle background tint. Idempotent: re-runs detect existing "
+    "decoration shapes and skip them. --level 1 (subtle) | 2 (standard, "
+    "default) | 3 (rich). Auto-picks theme from content if --theme omitted.",
+    "mutate polish-business --in X --out Y [--level 2] [--theme path]")
+def cmd_polish_business(args):
+    """Run the business-polish pass on the deck."""
+    import subprocess, tempfile
+    from pathlib import Path as _P
+
+    script_dir = _P(__file__).resolve().parent
+    prs = _open(args.in_path)
+
+    # Inspect + role-detect for typography + decoration anchoring.
+    with tempfile.TemporaryDirectory() as tmp:
+        ins_path = _P(tmp) / "ins.json"
+        roles_path = _P(tmp) / "roles.json"
+        subprocess.run(
+            [sys.executable, str(script_dir / "inspect_ppt.py"),
+             "--input", str(args.in_path), "--output", str(ins_path)],
+            check=True,
+        )
+        subprocess.run(
+            [sys.executable, str(script_dir / "detect_roles.py"),
+             "--inspection", str(ins_path), "--output", str(roles_path)],
+            check=True,
+        )
+        inspection = json.loads(ins_path.read_text(encoding="utf-8"))
+        role_data = json.loads(roles_path.read_text(encoding="utf-8"))
+
+    # Theme: explicit --theme wins; otherwise auto-pick from content.
+    from _business_polish import (
+        apply_business_polish, pick_theme,
+    )
+    if args.theme:
+        theme = load_theme(_P(args.theme))
+        theme_source = str(args.theme)
+    else:
+        # Aggregate all text from inspection for theme keyword scoring.
+        all_text = " ".join(
+            obj.get("text") or ""
+            for slide in inspection.get("slides", [])
+            for obj in slide.get("objects", [])
+        )
+        theme_name = pick_theme(all_text, THEMES_DIR)
+        theme = load_theme(THEMES_DIR / f"{theme_name}.json")
+        theme_source = f"auto:{theme_name}"
+
+    level = int(args.level)
+    result = apply_business_polish(prs, theme, role_data, level=level)
+    _save(prs, args.out_path)
+
+    LOG.event("polish-business",
+              level=level, theme_source=theme_source,
+              actions=result["actions_applied"])
+    _emit({
+        "op": "polish-business",
+        "level": level,
+        "theme_source": theme_source,
+        "actions_applied": result["actions_applied"],
+        "actions": result["actions"],
+    })
+    return 0
+
+
 @op("repair", "Detect and fix peer-card outliers. --scope safe (only box+header) | no-orphans | all (default).",
     "mutate repair-peer-cards --in X --out Y [--scope safe]")
 def cmd_repair_peer_cards(args):
@@ -1252,6 +1320,15 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("repair-grid", help="auto-fix 2D grid layout outliers (NxM dashboards)")
     _add_io(p); p.add_argument("--nested", action="store_true", help="recurse into each panel for sub-grids")
     p.set_defaults(func=cmd_repair_grid)
+
+    # Polish
+    p = sub.add_parser("polish-business", help="business-grade visual polish (typography + decoration; doesn't change content)")
+    _add_io(p)
+    p.add_argument("--level", type=int, choices=[1, 2, 3], default=2,
+                   help="1=subtle 2=standard 3=rich")
+    p.add_argument("--theme", type=Path, default=None,
+                   help="optional theme JSON; if omitted, auto-pick from content")
+    p.set_defaults(func=cmd_polish_business)
 
     # Connector
     p = sub.add_parser("style-connector", help="theme connector style"); _add_io(p); _add_targets(p, allow_multi=False); _add_theme(p); p.set_defaults(func=cmd_style_connector)

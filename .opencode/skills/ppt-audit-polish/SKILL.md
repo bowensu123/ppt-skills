@@ -317,6 +317,40 @@ visual gets *worse* on inspection, REVERT and re-run with `--scope safe`.
 python scripts/mutate.py all-connectors-to-back --in deck.pptx --out v1.pptx
 ```
 
+**Business-grade polish (one-click, doesn't change content)**
+```bash
+# Auto-pick theme based on content keywords; standard polish level.
+python scripts/mutate.py polish-business --in deck.pptx --out v1.pptx
+
+# Explicit level (1=subtle, 2=standard default, 3=rich) and theme.
+python scripts/mutate.py polish-business --in deck.pptx --out v1.pptx \
+    --level 3 --theme themes/business-warm.json
+```
+
+What it does (idempotent — safe to re-run):
+- **Smart typography**: applies the theme's type scale (size + weight +
+  color) to every detected role (title / subtitle / body / caption).
+- **Geometric consistency**: unifies corner radius across rounded
+  containers; unifies subtle shadow on card-sized shapes.
+- **Hierarchy decoration** (level ≥ 2): adds a thin primary-color
+  accent bar above each title; adds a 0.5pt divider line above the
+  bottom band.
+- **Surface tint** (level 3 only): adds a very-pale background
+  rectangle behind each subtitle.
+
+What it never does:
+- Modify any text content (run.text stays untouched).
+- Delete or hide existing shapes.
+- Add decoration that overlaps existing content (decorations go to
+  z-order back; if there's no space above the title, the accent bar is
+  skipped).
+
+Theme is auto-picked from content keywords:
+- "AI / 框架 / model / agent" → `clean-tech`
+- "营收 / ROI / 客户 / Q1" → `business-warm`
+- "研究 / 实验 / 论文 / hypothesis" → `academic-soft`
+- "故事 / 叙事 / 品牌 / editorial" → `editorial-dark`
+
 **Apply theme typography to one shape**
 ```bash
 python scripts/mutate.py apply-typography --in deck.pptx --out v1.pptx --shape-id 2 --role title
