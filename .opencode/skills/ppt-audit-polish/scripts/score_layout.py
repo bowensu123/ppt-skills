@@ -405,6 +405,7 @@ def _collect_issues(slide: dict, role_data: dict, svg_signals: dict | None = Non
         ("_color_harmony", "detect_color_issues"),
         ("_image_check", "detect_image_issues"),
         ("_table_chart", "detect_table_chart_issues"),
+        ("_spacing_analyzer", "detect_spacing_issues"),
     ):
         try:
             mod = __import__(module_name)
@@ -412,6 +413,13 @@ def _collect_issues(slide: dict, role_data: dict, svg_signals: dict | None = Non
             issues.extend(fn(slide))
         except Exception:
             pass
+
+    # Hierarchy-spacing detector takes role_data as a second arg.
+    try:
+        from _hierarchy_spacing import detect_hierarchy_spacing_issues
+        issues.extend(detect_hierarchy_spacing_issues(slide, role_data))
+    except Exception:
+        pass
 
     # Visual-balance is a metric AND a possible issue.
     try:
