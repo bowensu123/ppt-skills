@@ -79,6 +79,11 @@ def test_pick_theme_editorial_keywords():
     assert pick_theme(content, SKILL_ROOT / "themes") == "editorial-dark"
 
 
+def test_pick_theme_claude_code_keywords():
+    content = "Claude CLI agent 在 terminal 跑 bash command，编辑 Python 脚本，commit 到 git repo"
+    assert pick_theme(content, SKILL_ROOT / "themes") == "claude-code"
+
+
 def test_pick_theme_empty_falls_back():
     """Empty content returns the default fallback."""
     assert pick_theme("", SKILL_ROOT / "themes") == "clean-tech"

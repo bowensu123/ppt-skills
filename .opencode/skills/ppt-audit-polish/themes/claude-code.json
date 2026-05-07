@@ -1,0 +1,60 @@
+{
+  "name": "claude-code",
+  "palette": {
+    "primary": "D97757",
+    "primary_soft": "2A1F1A",
+    "accent": "F4A261",
+    "accent_warn": "E76F51",
+    "text_strong": "F5F5F5",
+    "text": "D0D0D0",
+    "text_muted": "808080",
+    "background": "0F0F0F",
+    "surface": "1A1A1A",
+    "border": "333333"
+  },
+  "typography": {
+    "font_family": "Consolas",
+    "size_pt": {
+      "title": 32,
+      "subtitle": 14,
+      "h2": 14,
+      "body": 11,
+      "caption": 9,
+      "badge": 10
+    },
+    "bold": {
+      "title": true,
+      "subtitle": false,
+      "h2": true,
+      "body": false,
+      "caption": false,
+      "badge": true
+    },
+    "color_role": {
+      "title": "text_strong",
+      "subtitle": "text_muted",
+      "h2": "primary",
+      "body": "text",
+      "caption": "text_muted",
+      "badge": "primary"
+    }
+  },
+  "spacing": {
+    "slide_padding_emu": 457200,
+    "card_padding_emu": 182880,
+    "row_min_gap_emu": 182880,
+    "col_min_gap_emu": 182880,
+    "subtitle_gap_below_title_emu": 91440
+  },
+  "decoration": {
+    "card_fill_role": "surface",
+    "card_border_role": "border",
+    "card_border_pt": 0.75,
+    "card_corner_radius_ratio": 0.04,
+    "card_shadow": false,
+    "badge_fill_role": "primary",
+    "section_fill_role": "primary_soft",
+    "connector_color_role": "primary",
+    "connector_pt": 1.0
+  }
+}

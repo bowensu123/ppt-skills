@@ -390,8 +390,8 @@ def tint_subtitle_background(prs, theme, role_data: dict) -> list[dict]:
 # the agent can override with --theme.
 THEME_KEYWORDS = {
     "clean-tech":     ["框架", "模型", "AI", "算法", "API", "data", "model",
-                       "agent", "llm", "tensor", "neural", "vision", "embed",
-                       "tech", "infrastructure", "cloud", "code", "deploy"],
+                       "tensor", "neural", "vision", "embed",
+                       "tech", "infrastructure", "deploy"],
     "business-warm":  ["营收", "增长", "客户", "市场", "ROI", "growth",
                        "revenue", "customer", "market", "sales", "strategy",
                        "Q1", "Q2", "Q3", "Q4", "KPI", "OKR", "成本", "利润"],
@@ -401,6 +401,14 @@ THEME_KEYWORDS = {
     "editorial-dark": ["故事", "观点", "品牌", "叙事", "narrative", "brand",
                        "story", "voice", "perspective", "editorial",
                        "manifesto", "vision", "design"],
+    "claude-code":    ["claude", "anthropic", "cli", "terminal", "command",
+                       "bash", "shell", "code", "agent", "developer", "dev",
+                       "cursor", "vscode", "ide", "repo", "git", "commit",
+                       "function", "method", "script", "subprocess",
+                       "stdin", "stdout", "Microsoft", "build", "deploy",
+                       "compile", "runtime", "env", "config", "yaml", "json",
+                       "Python", "TypeScript", "Rust", "Go", "Node",
+                       "工具链", "脚本", "CLI", "终端", "命令行"],
 }
 
 

@@ -5,9 +5,9 @@ compatibility: opencode
 metadata:
   audience: presentation-authors
   workflow: ppt-review
-  ops_count: 45
-  themes_count: 4
-  templates_count: 3
+  ops_count: 52
+  themes_count: 5
+  templates_count: 4
 ---
 
 ## When to invoke
@@ -206,6 +206,7 @@ When polish ceiling is too low, regenerate produces a fresh slide using a pre-bu
 | `horizontal-timeline` | Process steps, stages, comparison classes | Items are sequential / ordered (Step 1→2→3, Zero-shot → Few-shot → Many-shot, before→after). The original deck likely had connector arrows or numeric prefixes. |
 | `grid-2x3` | Independent feature/benefit lists | Items are parallel and exchangeable (Performance / Security / Cost / Reliability). Order doesn't matter. |
 | `feature-list` | One hero topic, items are secondary | Title is the spotlight; items are short bullets supporting it. Works for any item count including 0. |
+| `claude-code` | Dev tools, AI products, code/agent showcases | Content is technical (CLIs, agents, code features, model docs). Renders with terminal aesthetic — dark background, coral prompt prefixes, monospace cards. Pairs with the `claude-code` theme. |
 
 ### Inspecting available templates
 
@@ -411,7 +412,7 @@ See [docs/mutate-ops.md](docs/mutate-ops.md) for all 45 ops.
 
 ## Themes
 
-`themes/`: `clean-tech.json` (default tech blue), `academic-soft.json`, `business-warm.json`, `editorial-dark.json`.
+`themes/`: `clean-tech.json` (default tech blue), `academic-soft.json`, `business-warm.json`, `editorial-dark.json`, `claude-code.json` (dark + coral, pairs with the `claude-code` template).
 
 Pass `--theme themes/<name>.json` to `apply-typography`, `apply-card-style`, `apply-badge-style`, `style-connector`. See [docs/themes.md](docs/themes.md).
 
