@@ -445,7 +445,7 @@ def _suggest_displaced_children(cards: list[dict], all_objects: list[dict]) -> l
     return fixes
 
 
-def diagnose_repair(slide_inspection: dict, scope: str = "all") -> dict:
+def diagnose_repair(slide_inspection: dict, scope: str = "all", include_grid: bool = True) -> dict:
     """Build a repair plan for one slide.
 
     scope:
@@ -454,6 +454,11 @@ def diagnose_repair(slide_inspection: dict, scope: str = "all") -> dict:
                         (skips orphan + displaced relocation, which can
                         misfire on heavily damaged decks)
       'no-orphans'    — everything except orphan-relocation
+
+    include_grid:
+      When the 1D row-based detection produces no full row of >=3 peers,
+      fall back to the 2D grid detector (handles 2x3 / 3x2 dashboards
+      and nested layouts).
     """
     # Work on a deep-copied object list so we can apply fixes virtually
     # before running later detection passes (otherwise an oversized header
@@ -501,26 +506,114 @@ def diagnose_repair(slide_inspection: dict, scope: str = "all") -> dict:
             "orphan_relocations": orphan_relocs,
             "displaced_relocations": displaced_relocs,
         })
+
+    # If 1D row detection produced no actionable plan, fall back to 2D grid.
+    if include_grid and not any(
+        r["card_box_fixes"] or r["header_strip_fixes"] or r["orphan_relocations"] or r["displaced_relocations"]
+        for r in out_rows
+    ):
+        try:
+            from _grid_detect import diagnose_grid_repair
+            grid_plan = diagnose_grid_repair(slide_inspection)
+            out_rows.extend(grid_plan["rows"])
+        except Exception:
+            pass
+
     return {"rows": out_rows}
 
 
 def apply_repair(slide, slide_inspection: dict, plan: dict, action_log: list[dict], slide_idx: int) -> None:
-    """Apply a repair plan to a python-pptx slide in place."""
+    """Apply a repair plan to a python-pptx slide in place.
+
+    For grid-box fixes that include a `left`/`top` delta, also move every
+    shape that was nested INSIDE the panel's old bbox by the same delta —
+    otherwise children stay at their old absolute positions and appear as
+    orphaned leftovers when the panel moves.
+    """
     from pptx.util import Emu
 
     sid_to_shape = {int(s.shape_id): s for s in slide.shapes if s.shape_id is not None}
+    obj_lookup = {o["shape_id"]: o for o in slide_inspection["objects"]}
+
+    def _bbox_contains_center(L, T, R, B, obj, slack=91440):
+        cx = obj["left"] + obj["width"] // 2
+        cy = obj["top"] + obj["height"] // 2
+        return L - slack <= cx <= R + slack and T - slack <= cy <= B + slack
+
+    def _panel_attached_children(old_panel: dict, new_left: int, new_top: int) -> list[int]:
+        """Return shape_ids that are children of OLD panel position but
+        would NOT be inside the NEW panel position. These are "attached"
+        decorations (header strips, badges) that should travel with the
+        panel. Shapes that fit BOTH old and new are independent content
+        already correctly placed — leave them alone.
+        """
+        old_L = old_panel["left"]; old_T = old_panel["top"]
+        old_R = old_L + old_panel["width"]; old_B = old_T + old_panel["height"]
+        new_R = new_left + old_panel["width"]; new_B = new_top + old_panel["height"]
+        out = []
+        for o in slide_inspection["objects"]:
+            if o["shape_id"] == old_panel["shape_id"]:
+                continue
+            if o.get("anomalous"):
+                continue
+            in_old = _bbox_contains_center(old_L, old_T, old_R, old_B, o)
+            in_new = _bbox_contains_center(new_left, new_top, new_R, new_B, o)
+            if in_old and not in_new:
+                out.append(o["shape_id"])
+        return out
 
     for row in plan["rows"]:
         for fix in row["card_box_fixes"]:
             shape = sid_to_shape.get(fix["shape_id"])
             if shape is None:
                 continue
+            old_obj = obj_lookup.get(fix["shape_id"])
+            old_left = int(shape.left) if shape.left is not None else 0
+            old_top = int(shape.top) if shape.top is not None else 0
+
+            # Identify panel-attached decorations (header strip, badge,
+            # accent bar) that lived in the panel's OLD bbox but won't fit
+            # the NEW position. These travel with the panel. Content that
+            # fits both old and new bboxes is left alone — it's already at
+            # the correct slide coordinate.
+            children_to_move: list[int] = []
+            new_left_for_calc = fix.get("left", old_left)
+            new_top_for_calc = fix.get("top", old_top)
+            if old_obj is not None and ("left" in fix or "top" in fix):
+                children_to_move = _panel_attached_children(
+                    old_obj, new_left_for_calc, new_top_for_calc,
+                )
+            dx = (fix["left"] - old_left) if "left" in fix else 0
+            dy = (fix["top"] - old_top) if "top" in fix else 0
+
             if "top" in fix:
                 shape.top = Emu(fix["top"])
             if "height" in fix:
                 shape.height = Emu(fix["height"])
             if "width" in fix:
                 shape.width = Emu(fix["width"])
+            if "left" in fix:
+                shape.left = Emu(fix["left"])
+
+            if (dx or dy) and children_to_move:
+                moved_n = 0
+                for child_sid in children_to_move:
+                    child_shape = sid_to_shape.get(int(child_sid))
+                    if child_shape is None:
+                        continue
+                    try:
+                        child_shape.left = Emu(int(child_shape.left) + dx)
+                        child_shape.top = Emu(int(child_shape.top) + dy)
+                        moved_n += 1
+                    except (AttributeError, ValueError):
+                        continue
+                if moved_n:
+                    action_log.append({
+                        "slide_index": slide_idx, "action": "repair-card-box-children",
+                        "target": fix["name"],
+                        "detail": f"moved {moved_n} child shapes by ({dx}, {dy})",
+                    })
+
             action_log.append({
                 "slide_index": slide_idx, "action": "repair-card-box",
                 "target": fix["name"], "detail": str({k: v for k, v in fix.items() if k not in ("shape_id", "name")}),

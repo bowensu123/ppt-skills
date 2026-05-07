@@ -921,6 +921,37 @@ def cmd_mirror_peer_position(args):
     return 0
 
 
+@op("placement", "Snap a grid-cell shape: take its top from one peer, its left from another. Useful when ONE cell of a 2D grid (NxM rows/cols) is misaligned and other peers are correct.",
+    "mutate align-to-grid-cell --in X --out Y --shape-id 6 --top-from-shape-id 21 --left-from-shape-id 36")
+def cmd_align_to_grid_cell(args):
+    """Snap shape's top to peer-A's top and/or left to peer-B's left."""
+    prs = _open(args.in_path)
+    by_id = _shapes_by_id(prs)
+    sid = int(args.shape_id)
+    if sid not in by_id:
+        raise SystemExit(f"error: shape_id {sid} not found")
+    _, shape = by_id[sid]
+    new_left = None
+    new_top = None
+    if args.left_from_shape_id is not None:
+        ref_sid = int(args.left_from_shape_id)
+        if ref_sid not in by_id:
+            raise SystemExit(f"error: --left-from-shape-id {ref_sid} not found")
+        new_left = int(by_id[ref_sid][1].left)
+    if args.top_from_shape_id is not None:
+        ref_sid = int(args.top_from_shape_id)
+        if ref_sid not in by_id:
+            raise SystemExit(f"error: --top-from-shape-id {ref_sid} not found")
+        new_top = int(by_id[ref_sid][1].top)
+    if new_left is None and new_top is None:
+        raise SystemExit("error: provide --top-from-shape-id and/or --left-from-shape-id")
+    change = set_position(shape, left=new_left, top=new_top)
+    _save(prs, args.out_path)
+    LOG.event("align-to-grid-cell", shape_id=sid, change=change)
+    _emit({"op": "align-to-grid-cell", "shape_id": sid, "change": change})
+    return 0
+
+
 @op("placement", "Move shape into the bbox of another shape, optionally with a relative offset (0-1 fractional).",
     "mutate move-to-card --in X --out Y --shape-id 38 --container-id 49 --rel-x 0.15 --rel-y 0.10")
 def cmd_move_to_card(args):
@@ -952,6 +983,56 @@ def cmd_move_to_card(args):
 # ============================================================
 #  CARD REPAIR (peer-card outlier detection)
 # ============================================================
+
+@op("repair", "Detect MxN grid layouts (2x3 / 3x2 / NxM dashboards) and fix outlier panels. Recurses into each panel for nested sub-grids when --nested.",
+    "mutate repair-grid --in X --out Y [--nested]")
+def cmd_repair_grid(args):
+    """Pure 2D-grid path. For 1D row layouts use repair-peer-cards."""
+    import subprocess, tempfile
+    from pathlib import Path as _P
+
+    prs = _open(args.in_path)
+    script_dir = _P(__file__).resolve().parent
+    nested = bool(getattr(args, "nested", False))
+    max_depth = 2 if nested else 1
+
+    with tempfile.TemporaryDirectory() as tmp:
+        ins = _P(tmp) / "ins.json"
+        subprocess.run(
+            [sys.executable, str(script_dir / "inspect_ppt.py"),
+             "--input", str(args.in_path), "--output", str(ins)],
+            check=True,
+        )
+        inspection = json.loads(ins.read_text(encoding="utf-8"))
+
+    from _grid_detect import diagnose_grid_repair, detect_grids_nested
+    from _card_repair import apply_repair
+
+    actions: list[dict] = []
+    summary_grids = []
+    for slide_idx, (slide, slide_ins) in enumerate(zip(prs.slides, inspection["slides"]), start=1):
+        plan = diagnose_grid_repair(slide_ins, max_depth=max_depth)
+        if plan["rows"]:
+            apply_repair(slide, slide_ins, plan, actions, slide_idx)
+        # Also probe what was detected for the summary
+        grids = detect_grids_nested(slide_ins["objects"], max_depth=max_depth)
+        for g in grids:
+            summary_grids.append({
+                "slide_index": slide_idx,
+                "depth": g.get("depth", 0),
+                "rows": g["rows"], "cols": g["cols"],
+                "fill_ratio": g["fill_ratio"],
+                "panel_count": len(g["panel_ids"]),
+                "outlier_count": len(g["outliers"]),
+                "parent_panel_id": g.get("parent_panel_id"),
+            })
+
+    _save(prs, args.out_path)
+    LOG.event("repair-grid", actions=len(actions), grids=summary_grids, nested=nested)
+    _emit({"op": "repair-grid", "nested": nested, "actions_applied": len(actions),
+           "grids": summary_grids, "actions": actions})
+    return 0
+
 
 @op("repair", "Detect and fix peer-card outliers. --scope safe (only box+header) | no-orphans | all (default).",
     "mutate repair-peer-cards --in X --out Y [--scope safe]")
@@ -1153,6 +1234,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--peer-container-id", type=int, required=True)
     p.set_defaults(func=cmd_mirror_peer_position)
 
+    p = sub.add_parser("align-to-grid-cell", help="grid-cell snap: take top from one peer, left from another")
+    _add_io(p); p.add_argument("--shape-id", type=int, required=True)
+    p.add_argument("--top-from-shape-id", type=int)
+    p.add_argument("--left-from-shape-id", type=int)
+    p.set_defaults(func=cmd_align_to_grid_cell)
+
     p = sub.add_parser("move-to-card", help="drop shape into another container at fractional rel position")
     _add_io(p); p.add_argument("--shape-id", type=int, required=True)
     p.add_argument("--container-id", type=int, required=True)
@@ -1162,6 +1249,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Repair
     p = sub.add_parser("repair-peer-cards", help="auto-fix peer-card outliers"); _add_io(p); p.add_argument("--scope", choices=["all", "safe", "no-orphans"], default="all"); p.set_defaults(func=cmd_repair_peer_cards)
+    p = sub.add_parser("repair-grid", help="auto-fix 2D grid layout outliers (NxM dashboards)")
+    _add_io(p); p.add_argument("--nested", action="store_true", help="recurse into each panel for sub-grids")
+    p.set_defaults(func=cmd_repair_grid)
 
     # Connector
     p = sub.add_parser("style-connector", help="theme connector style"); _add_io(p); _add_targets(p, allow_multi=False); _add_theme(p); p.set_defaults(func=cmd_style_connector)
