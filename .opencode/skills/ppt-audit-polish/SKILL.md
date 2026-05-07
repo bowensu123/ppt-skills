@@ -330,6 +330,24 @@ reads them all to design layout.json with 100% fidelity to the original.
 | **L11: group-flattened geom** | `_advanced_extract.py` → `flattened-shapes.json` | World-coord bbox for nested children of groups (group transform applied) | Replaces declared bbox when group transforms are non-trivial |
 | **L12: full geometry** | `inspect_ppt.py` → `inspection.json` | Every shape's bbox / font / color / kind | Read by agent for cross-reference |
 
+### Two render modes — pick based on what you need to preserve
+
+**preserve-identity (`apply_relocation.py`) — RECOMMENDED for most decks**
+
+Opens the original deck and applies per-shape relocation decisions
+(move / restyle / recreate / delete). Keeps shape_id, name, placeholder
+type intact for shapes the agent marked `preserve_identity`. Connector
+arrows stay connected; hyperlinks stay valid; comments stay anchored.
+Content (text + image binary) preserved unconditionally even when a
+shape is recreated.
+
+**free-form (`apply_layout.py`) — for fundamental redesign**
+
+Builds a fresh deck from primitives. Loses shape identity but lets the
+agent design any layout from scratch. Use when the original deck is
+structurally beyond rescue or when you don't care about preserving
+PowerPoint object IDs.
+
 ### Free-form flow
 
 ```
@@ -409,6 +427,79 @@ After reading content + manifest + annotated render, the agent MUST:
 3. **Update content.json** by setting `items[i].image = {"path": "assets/sid_<N>.<ext>", "asset_id": "aXX"}` for each item-icon attribution, and pushing logos/chrome to `decorations[]`.
 4. Run `apply_layout.py --content content.json --layout layout.json --out fresh.pptx`.
 5. Read the resulting render with the Read tool. Iterate the layout if the visual is wrong.
+
+### Preserve-identity flow (recommended)
+
+```
+INPUT: deck.pptx
+   ↓
+[1-5] same extractors + state_summary as free-form flow
+   ↓
+[+]   python scripts/_relationships_extract.py --in deck.pptx --work-dir out/
+       → out/relationships.json with per-shape:
+         - shape_id, name, placeholder type
+         - is_referenced_by (connectors, hyperlinks, click actions, comments)
+         - references_to (outbound hyperlinks, click actions)
+         - preserve_identity_default (true|false) + rationale_default
+   ↓
+[6]   AGENT decides PER SHAPE:
+       Read relationships.json + render PNGs + content/composition manifests.
+       For each shape:
+         - default suggestion is provided (placeholder OR has refs → preserve)
+         - agent can override based on visual judgment
+       Decide one of three:
+         "preserve_identity" — move / restyle in place; shape_id stays
+         "recreate"          — delete + add new primitive; identity lost
+                                but content (text/image) is auto-carried
+         "delete"            — remove without replacement
+       Plus optional add_new_shapes for agent-designed decorations.
+       Write relocation.json:
+         {"slides": [{
+           "slide_index": 1,
+           "shapes": {
+             "42": {"decision": "preserve_identity",
+                     "agent_rationale": "...",
+                     "new_bbox_emu": [...], "new_style": {...}},
+             ...
+           },
+           "add_new_shapes": [...]
+         }]}
+   ↓
+[7]   python scripts/apply_relocation.py \
+          --in deck.pptx \
+          --relocation out/relocation.json \
+          --out polished.pptx
+       → opens original deck (preserves all XML)
+       → applies preserve_identity decisions in pass 1 (move/restyle)
+       → applies recreate / delete in pass 2 (capture content first)
+       → adds new decorative shapes (agent's add_new_shapes)
+       → saves
+   ↓
+[8]   state_summary.py --diff-from deck.pptx → 3-part report
+```
+
+### Hard guarantees of preserve-identity flow
+
+The renderer enforces two contracts regardless of agent decisions:
+
+  1. **Content assets** (text / image binary / decorative shapes that
+     hold data) — UNCONDITIONALLY preserved. Even when a shape is
+     "recreated", its text and image bytes are captured before the
+     original is deleted and reinjected into the new primitive.
+
+  2. **Semantic structure** (title / subtitle / items / footer roles)
+     — UNCONDITIONALLY preserved via content.json. The agent may
+     remap roles to new positions, but role tags persist.
+
+The agent has discretion only over:
+
+  3. **Editable object identity** (shape_id, name, placeholder type)
+     — preserve_identity keeps these; recreate forfeits them.
+
+  4. **Relationship references** (connectors, hyperlinks, click actions,
+     comments, group memberships) — automatically preserved when the
+     shape is preserve_identity; lost when recreate. Agent's default
+     rationale flags inbound references so this is not accidental.
 
 ### Preset templates (fallback path)
 

@@ -1035,6 +1035,66 @@ def cmd_repair_grid(args):
 
 
 @op("audit",
+    "Apply per-shape preserve_identity / recreate / delete decisions from "
+    "an agent-written relocation.json. Preserves shape_id, name, "
+    "placeholder, connector endpoints, hyperlinks for shapes marked "
+    "preserve_identity. Unconditionally preserves text content + image "
+    "binary across recreate. Use as the Path B render path when you need "
+    "editable-object identity + relationship references intact.",
+    "mutate apply-relocation --in X --relocation R.json --out Y")
+def cmd_apply_relocation(args):
+    from apply_relocation import apply_relocation
+    result = apply_relocation(args.in_path, args.relocation, args.out_path)
+    LOG.event("apply-relocation",
+              actions=result["actions_applied"],
+              skipped=len(result["skipped"]))
+    _emit({
+        "op": "apply-relocation",
+        "actions_applied": result["actions_applied"],
+        "skipped": result["skipped"],
+        "actions": result["actions"],
+    })
+    return 0
+
+
+@op("audit",
+    "Extract per-shape identity (shape_id/name/placeholder) + relationship "
+    "metadata (connector endpoints, text-run hyperlinks, click actions, "
+    "group membership, comments). Emits relationships.json the agent reads "
+    "to decide PER SHAPE whether to preserve_identity or recreate during "
+    "Path B regenerate. Each shape gets a default preservation suggestion "
+    "with rationale; agent has final say.",
+    "mutate extract-relationships --in X --work-dir Y")
+def cmd_extract_relationships(args):
+    from _relationships_extract import extract_relationships
+    manifest = extract_relationships(args.in_path, args.work_dir)
+    LOG.event("extract-relationships",
+              slide_count=manifest["slide_count"],
+              total_shapes=sum(len(s["shapes"]) for s in manifest["slides"]))
+    _emit({
+        "op": "extract-relationships",
+        "slide_count": manifest["slide_count"],
+        "manifest": str(args.work_dir / "relationships.json"),
+        "summary": {
+            "total_shapes": sum(len(s["shapes"]) for s in manifest["slides"]),
+            "shapes_with_placeholder": sum(
+                1 for s in manifest["slides"] for sh in s["shapes"]
+                if sh["placeholder"] is not None
+            ),
+            "shapes_with_inbound_refs": sum(
+                1 for s in manifest["slides"] for sh in s["shapes"]
+                if sh["is_referenced_by"]
+            ),
+            "shapes_default_preserve": sum(
+                1 for s in manifest["slides"] for sh in s["shapes"]
+                if sh["preserve_identity_default"]
+            ),
+        },
+    })
+    return 0
+
+
+@op("audit",
     "Pure composition descriptor — emits per-card geometry, visual-weight, "
     "alignment-grid facts the agent reads alongside DESIGN_PRINCIPLES.md "
     "to JUDGE what to change. No hardcoded thresholds, no auto-fixes. "
@@ -1474,6 +1534,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output", "-o", type=Path, default=None,
                    help="write JSON to this file in addition to stdout")
     p.set_defaults(func=cmd_describe_composition)
+    p = sub.add_parser("extract-relationships",
+                        help="extract per-shape identity + reference metadata")
+    p.add_argument("--in", dest="in_path", required=True, type=Path)
+    p.add_argument("--work-dir", required=True, type=Path)
+    p.set_defaults(func=cmd_extract_relationships)
+    p = sub.add_parser("apply-relocation",
+                        help="apply agent-written per-shape preserve/recreate/delete decisions")
+    _add_io(p)
+    p.add_argument("--relocation", required=True, type=Path,
+                   help="path to agent-written relocation.json")
+    p.set_defaults(func=cmd_apply_relocation)
 
     # Connector
     p = sub.add_parser("style-connector", help="theme connector style"); _add_io(p); _add_targets(p, allow_multi=False); _add_theme(p); p.set_defaults(func=cmd_style_connector)
