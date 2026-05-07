@@ -207,7 +207,41 @@ def polish_one_click(
         })
         current = stage
 
-        # 6. Copy final to output and produce final summary with diff.
+        # 5. refine-contrast — background-aware text color fix. Always
+        #    runs after polish-business since polish applies theme colors
+        #    that may not contrast against per-shape backgrounds.
+        stage = work_dir / "stage-5-contrast.pptx"
+        refine_args = ["--in", str(current), "--out", str(stage)]
+        if theme is not None:
+            refine_args.extend(["--theme", str(theme)])
+        try:
+            r = _run_op("refine-contrast", *refine_args)
+            artifacts.append({
+                "stage": "refine-contrast",
+                "applied": r.get("applied", 0),
+                "skipped": r.get("skipped", 0),
+            })
+            current = stage
+        except subprocess.CalledProcessError:
+            artifacts.append({"stage": "refine-contrast", "error": "failed"})
+
+        # 6. refine-proportions — visual composition auditor that catches
+        #    icon-too-small / icon-too-big / card-too-empty / icon-text
+        #    size mismatch, then auto-applies safe resize fixes.
+        stage = work_dir / "stage-6-proportions.pptx"
+        try:
+            r = _run_op("refine-proportions",
+                        "--in", str(current), "--out", str(stage))
+            artifacts.append({
+                "stage": "refine-proportions",
+                "detected": r.get("detected", 0),
+                "applied": r.get("applied", 0),
+            })
+            current = stage
+        except subprocess.CalledProcessError:
+            artifacts.append({"stage": "refine-proportions", "error": "failed"})
+
+        # 7. Copy final to output and produce final summary with diff.
         shutil.copy(current, output_path)
         final = _run_summary(
             output_path, work_dir / "state-final",

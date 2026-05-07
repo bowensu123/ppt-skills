@@ -1035,6 +1035,100 @@ def cmd_repair_grid(args):
 
 
 @op("polish",
+    "Composition / proportion auditor. Detects per-card visual-balance issues "
+    "(icon too small or too big relative to card area, card too empty, top-"
+    "heavy composition, icon-vs-title size mismatch) and auto-applies safe "
+    "fixes (resize icon to ~12% of card area, scale icon-pt to 3x title-pt). "
+    "Use after polish-business + refine-contrast for full visual polish.",
+    "mutate refine-proportions --in X --out Y")
+def cmd_refine_proportions(args):
+    import subprocess, tempfile
+    from pathlib import Path as _P
+
+    script_dir = _P(__file__).resolve().parent
+    prs = _open(args.in_path)
+    with tempfile.TemporaryDirectory() as tmp:
+        ins_path = _P(tmp) / "ins.json"
+        subprocess.run(
+            [sys.executable, str(script_dir / "inspect_ppt.py"),
+             "--input", str(args.in_path), "--output", str(ins_path)],
+            check=True,
+        )
+        inspection = json.loads(ins_path.read_text(encoding="utf-8"))
+
+    from _proportion_audit import (
+        auto_apply_proportion_fixes,
+        detect_proportion_issues,
+    )
+    # Surface the audit BEFORE applying so the agent can read what
+    # was detected (useful for iteration / agent-driven flows).
+    detected = []
+    for slide in inspection.get("slides", []):
+        detected.extend(detect_proportion_issues(slide))
+
+    result = auto_apply_proportion_fixes(prs, inspection.get("slides", []))
+    _save(prs, args.out_path)
+    LOG.event("refine-proportions",
+              detected=len(detected), applied=result["applied"])
+    _emit({
+        "op": "refine-proportions",
+        "detected": len(detected),
+        "applied": result["applied"],
+        "issues": detected,
+        "actions": result["actions"],
+    })
+    return 0
+
+
+@op("polish",
+    "Background-aware text contrast refiner. For each text shape, find the "
+    "effective background (parent container fill or slide bg), check WCAG "
+    "contrast, and swap the text color to the best palette option when "
+    "below threshold. Run AFTER polish-business to catch cases where a "
+    "theme color was applied without considering the actual rendering "
+    "background (e.g. dark text on a colored badge).",
+    "mutate refine-contrast --in X --out Y [--target-ratio 4.5] [--theme path]")
+def cmd_refine_contrast(args):
+    import subprocess, tempfile
+    from pathlib import Path as _P
+
+    script_dir = _P(__file__).resolve().parent
+    prs = _open(args.in_path)
+
+    # Always need a fresh inspection.
+    with tempfile.TemporaryDirectory() as tmp:
+        ins_path = _P(tmp) / "ins.json"
+        subprocess.run(
+            [sys.executable, str(script_dir / "inspect_ppt.py"),
+             "--input", str(args.in_path), "--output", str(ins_path)],
+            check=True,
+        )
+        inspection = json.loads(ins_path.read_text(encoding="utf-8"))
+
+    if args.theme:
+        theme = load_theme(_P(args.theme))
+    else:
+        theme = load_theme(THEMES_DIR / "clean-tech.json")
+
+    from _design_refine import refine_text_contrast
+    result = refine_text_contrast(
+        prs, theme, inspection.get("slides", []),
+        target_ratio=float(args.target_ratio),
+    )
+    _save(prs, args.out_path)
+    LOG.event("refine-contrast",
+              applied=result["applied"], skipped=result["skipped"])
+    _emit({
+        "op": "refine-contrast",
+        "applied": result["applied"],
+        "skipped": result["skipped"],
+        "actions": result["actions"],
+        "skipped_details": result["skipped_details"],
+    })
+    return 0
+
+
+@op("polish",
     "Apply business-grade visual polish without changing content: smart "
     "typography (theme type-scale across detected roles), unified corner "
     "radius and shadow, accent bar above title, footer divider, optional "
@@ -1067,9 +1161,12 @@ def cmd_polish_business(args):
         inspection = json.loads(ins_path.read_text(encoding="utf-8"))
         role_data = json.loads(roles_path.read_text(encoding="utf-8"))
 
-    # Theme: explicit --theme wins; otherwise auto-pick from content.
-    from _business_polish import (
-        apply_business_polish, pick_theme,
+    # Theme: explicit --theme wins; otherwise auto-pick from content +
+    # background luminance.
+    from _business_polish import apply_business_polish
+    from _design_refine import (
+        detect_background_luminance,
+        pick_theme_for_background,
     )
     if args.theme:
         theme = load_theme(_P(args.theme))
@@ -1081,9 +1178,14 @@ def cmd_polish_business(args):
             for slide in inspection.get("slides", [])
             for obj in slide.get("objects", [])
         )
-        theme_name = pick_theme(all_text, THEMES_DIR)
+        # Background-luminance bias: dark slide → dark theme, regardless of
+        # what the keywords would normally pick.
+        bg_lum = None
+        if inspection.get("slides"):
+            bg_lum = detect_background_luminance(inspection["slides"][0])
+        theme_name = pick_theme_for_background(all_text, THEMES_DIR, bg_lum)
         theme = load_theme(THEMES_DIR / f"{theme_name}.json")
-        theme_source = f"auto:{theme_name}"
+        theme_source = f"auto:{theme_name} (bg_lum={bg_lum:.2f})" if bg_lum is not None else f"auto:{theme_name}"
 
     level = int(args.level)
     result = apply_business_polish(prs, theme, role_data, level=level)
@@ -1362,6 +1464,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--theme", type=Path, default=None,
                    help="optional theme JSON; if omitted, auto-pick from content")
     p.set_defaults(func=cmd_polish_business)
+    p = sub.add_parser("refine-contrast", help="background-aware text contrast refinement (WCAG)")
+    _add_io(p)
+    p.add_argument("--target-ratio", type=float, default=4.5,
+                   help="WCAG contrast threshold (default AA = 4.5)")
+    p.add_argument("--theme", type=Path, default=None,
+                   help="theme JSON for palette options")
+    p.set_defaults(func=cmd_refine_contrast)
+    p = sub.add_parser("refine-proportions", help="visual proportion / composition auditor + auto-fix")
+    _add_io(p)
+    p.set_defaults(func=cmd_refine_proportions)
 
     # Connector
     p = sub.add_parser("style-connector", help="theme connector style"); _add_io(p); _add_targets(p, allow_multi=False); _add_theme(p); p.set_defaults(func=cmd_style_connector)
