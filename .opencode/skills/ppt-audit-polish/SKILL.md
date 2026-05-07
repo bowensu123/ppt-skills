@@ -162,30 +162,15 @@ OUTPUT
 
 ## Path B: Regenerate (template-based)
 
-When polish ceiling is too low, regenerate produces a fresh slide using a pre-built template.
-
-### One-shot regeneration
-
-```bash
-# Auto-pick template based on item count
-python scripts/regenerate.py --in deck.pptx --work-dir out/ --auto
-
-# Explicit template choice
-python scripts/regenerate.py --in deck.pptx --work-dir out/ --template horizontal-timeline
-python scripts/regenerate.py --in deck.pptx --work-dir out/ --template grid-2x3
-python scripts/regenerate.py --in deck.pptx --work-dir out/ --template feature-list
-
-# With theme override
-python scripts/regenerate.py --in deck.pptx --work-dir out/ --auto --theme themes/business-warm.json
-```
+When polish ceiling is too low, regenerate produces a fresh slide using a pre-built template. **Template selection is agent-driven** — there is no `--auto` heuristic. Item count alone cannot tell whether 4 items are 4 sequential steps or 4 parallel features, so YOU (the agent) read the content + look at the original deck and decide.
 
 ### Available templates
 
-| Template | Items | Layout | Best for |
-|---|---|---|---|
-| `horizontal-timeline` | 3-7 | Top accent bar + connector + N numbered cards | Process steps, comparison classes, stages |
-| `grid-2x3` | 4-8 | 2-col grid of rounded cards | Independent feature/benefit lists |
-| `feature-list` | 3-7 | Right hero panel + left vertical list | When title is the hero, items are secondary |
+| Template | Best for | Pick when… |
+|---|---|---|
+| `horizontal-timeline` | Process steps, stages, comparison classes | Items are sequential / ordered (Step 1→2→3, Zero-shot → Few-shot → Many-shot, before→after). The original deck likely had connector arrows or numeric prefixes. |
+| `grid-2x3` | Independent feature/benefit lists | Items are parallel and exchangeable (Performance / Security / Cost / Reliability). Order doesn't matter. |
+| `feature-list` | One hero topic, items are secondary | Title is the spotlight; items are short bullets supporting it. Works for any item count including 0. |
 
 ### Inspecting available templates
 
@@ -201,30 +186,75 @@ apply_template.py     → fresh.pptx     (renders content into chosen template)
 state_summary.py      → state JSON     (scored vs baseline)
 ```
 
-### Path B decision flow in the agent loop
+### Path B agent-driven decision flow
 
 ```
-INIT
+INIT (same as Path A)
   python scripts/state_summary.py --in input.pptx --work-dir state-0/
-  → read state-0/state-summary.json + render PNG
+  → read state-0/state-summary.json + state-0/render/slide-001.png
   → record baseline_score and dominant issue categories
 
-DECIDE
+DECIDE (whether to switch to Path B)
   if baseline_score < 25 and (density_score < 30 or hierarchy_score < 50):
       Tell user: "polish 上限低，建议重新套模板"
-      Show available templates and item count
-      → on user confirm:
-          python scripts/regenerate.py --in input.pptx --work-dir regen/ --auto
-          read regen/state/render/slide-001.png
-          report 3-part: NUMERIC + VISUAL + DECISION
+      → on user confirm: enter Path B template-selection below
   else:
-      proceed with Path A polish loop
+      stay in Path A polish loop
+
+PATH B — STEP 1: Extract content
+  python scripts/extract_content.py --in input.pptx --work-dir regen/
+  → produces regen/content.json
+
+PATH B — STEP 2: Look + judge (THE AGENT-DECISION STEP)
+  Read regen/content.json with the Read tool — see title, items[].name,
+  items[].description, badge, footer.
+  Re-look at state-0/render/slide-001.png — does the original layout
+  use connectors / arrows / numbered badges?
+
+  Decide template:
+    - Sequential signals (numeric prefixes "Step 1" / "①" / "第一",
+      time words "First / Then / Next / Finally", connector arrows in
+      original render, items reference each other) → horizontal-timeline
+    - Parallel signals (parallel-noun item names, no order implied,
+      grid arrangement in original) → grid-2x3
+    - Title-dominant + short item bullets → feature-list
+
+  Report your reasoning in ONE sentence to the user before running step 3.
+
+PATH B — STEP 3: Regenerate with chosen template
+  python scripts/regenerate.py --in input.pptx --work-dir regen/ \
+      --template <chosen-name>
+  → reads regen/content.json (already extracted), runs apply_template +
+    state_summary, copies final to regen/<stem>.polished.pptx
+
+PATH B — STEP 4: Report 3 parts (same template as Path A)
+  ▸ NUMERIC: baseline → regenerated (Δ)
+  ▸ VISUAL:  read regen/state/render/slide-001.png and describe it
+  ▸ DECISION: ADOPT (almost always — regenerate is opt-in already) or
+              REJECT and try a different template
 
 REPORT
   baseline 0.0 (poor) → regenerated 82.79 (good)
-  template: horizontal-timeline
-  output: <work-dir>/iter-1.polished.pptx
+  template: horizontal-timeline (chosen because items had "Zero-shot →
+            Few-shot → Many-shot" sequence pattern)
+  output: <work-dir>/<stem>.polished.pptx
 ```
+
+### Backward-compatible CLI
+
+```bash
+# Explicit template (only supported form)
+python scripts/regenerate.py --in deck.pptx --work-dir out/ --template horizontal-timeline
+python scripts/regenerate.py --in deck.pptx --work-dir out/ --template grid-2x3
+python scripts/regenerate.py --in deck.pptx --work-dir out/ --template feature-list
+
+# With theme override
+python scripts/regenerate.py --in deck.pptx --work-dir out/ \
+    --template grid-2x3 --theme themes/business-warm.json
+```
+
+`--auto` was removed deliberately. Calling it now produces an explicit
+error message guiding the agent to the extract → judge → regenerate flow.
 
 ### What you (the agent) MUST do
 

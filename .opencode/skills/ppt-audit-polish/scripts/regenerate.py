@@ -3,7 +3,20 @@ render and score.
 
 CLI:
   python regenerate.py --in deck.pptx --work-dir out/ --template horizontal-timeline
-  python regenerate.py --in deck.pptx --work-dir out/ --auto      # pick best by item count
+
+The template MUST be picked by the calling agent. The recommended flow:
+
+  1. python extract_content.py --in deck.pptx --work-dir out/
+       (or run state_summary.py first to also see the original render)
+  2. Read out/content.json AND out/render/slide-001.png with your own eyes.
+     Decide which template fits: is the content sequential (steps, stages,
+     timeline) → horizontal-timeline; independent parallel features →
+     grid-2x3; one hero topic with secondary list → feature-list.
+  3. python regenerate.py --in deck.pptx --work-dir out/ --template <chosen>
+
+Item-count heuristics were removed deliberately — a 4-step process and
+4 independent benefits both have item_count=4 but want different layouts.
+The agent's multimodal judgment is the source of truth.
 
 Outputs in <work-dir>:
   content.json                     extracted content (from extract_content.py)
@@ -12,7 +25,7 @@ Outputs in <work-dir>:
   render/slide-001.png             rendered preview
 
 Mode 5 entry point. Mode 4 agent decides whether to call this or stay in
-polish based on the structural diagnosis.
+polish based on the structural diagnosis AND content-fit judgment.
 """
 from __future__ import annotations
 
@@ -31,21 +44,11 @@ def _run(script: str, *args: str) -> None:
     subprocess.run([sys.executable, str(SCRIPT_DIR / script), *args], check=True)
 
 
-def _pick_template(item_count: int) -> str:
-    """Choose a sensible default template from the item count."""
-    if item_count <= 0:
-        return "feature-list"   # falls back gracefully when no items
-    if item_count <= 7:
-        return "horizontal-timeline"
-    return "grid-2x3"
-
-
 def regenerate(
     input_path: Path,
     work_dir: Path,
-    template_name: str | None = None,
+    template_name: str,
     theme_path: Path | None = None,
-    auto: bool = False,
     skip_repair: bool = False,
 ) -> dict:
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -75,9 +78,6 @@ def regenerate(
     content = json.loads((work_dir / "content.json").read_text(encoding="utf-8"))
 
     item_count = len(content.get("items") or [])
-    if auto or template_name is None:
-        template_name = _pick_template(item_count)
-
     out_pptx = work_dir / f"{input_path.stem}.regen-{template_name}.pptx"
     apply_args = [
         "--content", str(work_dir / "content.json"),
@@ -120,27 +120,43 @@ def regenerate(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description=(
+            "Regenerate a deck with a chosen template. The template is "
+            "agent-decided; run extract_content.py first, look at the "
+            "content.json + original render, then pick the template."
+        ),
+    )
     parser.add_argument("--in", dest="in_path", required=True, type=Path)
     parser.add_argument("--work-dir", required=True, type=Path)
-    parser.add_argument("--template", help="template name; omit with --auto")
-    parser.add_argument("--auto", action="store_true",
-                        help="pick template automatically from item count")
+    parser.add_argument(
+        "--template", required=True,
+        help="template name (e.g., horizontal-timeline / grid-2x3 / "
+             "feature-list). Pick based on content judgment, not item count.",
+    )
     parser.add_argument("--theme", type=Path)
     parser.add_argument("--skip-repair", action="store_true",
                         help="skip the pre-repair pass (faster but may miss content "
                              "if the input has oversized peer-card outliers)")
+    # Friendly error if a caller passes the removed --auto flag.
+    parser.add_argument(
+        "--auto", action="store_true", help=argparse.SUPPRESS,
+    )
     args = parser.parse_args()
 
-    if not args.template and not args.auto:
-        parser.error("specify --template <name> or --auto")
+    if args.auto:
+        parser.error(
+            "--auto was removed. Template selection is now agent-driven: "
+            "run extract_content.py to produce content.json, look at it + "
+            "the original render PNG, decide which template fits the content "
+            "(timeline / grid / feature-list), then pass --template <name>."
+        )
 
     summary = regenerate(
         input_path=args.in_path,
         work_dir=args.work_dir,
         template_name=args.template,
         theme_path=args.theme,
-        auto=args.auto,
         skip_repair=args.skip_repair,
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
