@@ -12,9 +12,44 @@ metadata:
 
 ## When to invoke
 
-Trigger on any of: "美化 PPT", "polish this deck", "audit slides", "fix layout", "调整版面", "边看边改", "迭代美化", "把 X 改成 Y".
+Trigger on any of:
+- **"一键美化" / "one-click polish" / "batch polish"** → use the FAST PATH below
+- "美化 PPT", "polish this deck", "audit slides", "fix layout", "调整版面",
+  "边看边改", "迭代美化" → use Path A iterative loop
+- "把 X 改成 Y" → targeted single-op (skip the loop)
 
-The user is asking YOU (the OpenCode agent) to drive an iterative polish loop. You use your own multimodal model — no `PPT_POLISH_MODEL_*` env vars, no separate API setup.
+The user is asking YOU (the OpenCode agent) to drive the polish work. You use your own multimodal model — no `PPT_POLISH_MODEL_*` env vars, no separate API setup.
+
+## FAST PATH: one-click polish (when user says "一键美化")
+
+Run a single command — no iteration, no per-step verification. The
+script chains `repair-grid → repair-peer-cards → unify-font →
+polish-business` and runs state_summary at start and end so the user
+sees a baseline-vs-final report.
+
+```bash
+python scripts/polish.py --in <input.pptx> --out <output.pptx>
+```
+
+Optional flags:
+- `--level 1|2|3` — polish intensity (1 subtle, 2 standard default, 3 rich decorative)
+- `--theme themes/<name>.json` — explicit theme (auto-picked from content otherwise)
+- `--skip-repair` — skip structural fixes (use when input is already structurally clean)
+- `--skip-font` — keep original fonts (skip Microsoft YaHei enforcement)
+- `--work-dir <dir>` — keep intermediate artifacts for inspection
+
+After it returns:
+1. Read the `final_render` PNG with the Read tool — confirm visually it improved
+2. Quote `baseline_score → final_score (Δ)` to the user
+3. Tell them the output path
+
+Constraint guarantee: this pipeline NEVER modifies text content; only
+geometry, typography, fill/line/shadow, corner radius, and added
+decoration shapes (z-order back, idempotent markers).
+
+If the user wants iterative control instead, fall back to Path A below.
+
+
 
 ## Two paths the agent picks between
 
