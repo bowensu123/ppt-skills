@@ -129,27 +129,224 @@ def add_blank_slide(prs):
     return prs.slides.add_slide(blank_layout)
 
 
-def add_image_from_path(slide, image_path, left, top, width, height) -> object | None:
+def add_image_from_path(slide, image_path, left, top, width, height,
+                         fit_mode: str = "stretch",
+                         crop: dict | None = None) -> object | None:
     """Drop a binary image into the slide at the given EMU coordinates.
 
-    Returns the picture shape on success, None on failure (missing file,
-    unsupported format). Used by templates to render `items[i].image`
-    attributions the agent set on the content JSON.
+    fit_mode controls how the image fills the bbox:
+      "stretch" — default, distort to fill (matches python-pptx default)
+      "contain" — preserve aspect, letterbox (image fits inside bbox)
+      "cover"   — preserve aspect, crop edges to fill bbox
+      "crop"    — apply explicit `crop` rect (left/top/right/bottom in
+                  fractions 0..1) before placing
 
-    The image is fit-stretched into the box; preserve-aspect should be
-    handled by the caller (compute width/height to match the original
-    aspect ratio if you care about it).
+    crop applies the source-rectangle from the original PPTX. Format:
+      {"left": 0.10, "top": 0.05, "right": 0.05, "bottom": 0.10}
+    Values are fractions of the original image to chop off each side.
+
+    Returns the picture shape, or None on failure.
     """
     from pathlib import Path
     p = Path(image_path)
     if not p.exists():
         return None
     try:
-        return slide.shapes.add_picture(
+        # Step 1: place the picture (default stretches to bbox)
+        if fit_mode in ("contain", "cover"):
+            # Need to know image native dims to compute aspect-fit box.
+            try:
+                from PIL import Image
+                with Image.open(p) as img:
+                    iw, ih = img.size
+            except Exception:
+                iw, ih = width, height  # graceful fallback
+            ox, oy, fw, fh = aspect_fit_box(iw, ih, width, height)
+            if fit_mode == "contain":
+                left += ox; top += oy
+                width = fw; height = fh
+            elif fit_mode == "cover":
+                # Reverse: scale so image FILLS bbox, crop excess.
+                src_ratio = iw / max(ih, 1)
+                box_ratio = width / max(height, 1)
+                if src_ratio > box_ratio:
+                    # too wide — make height fit, width overflow
+                    new_w = int(height * src_ratio)
+                    pic = slide.shapes.add_picture(
+                        str(p),
+                        Emu(left - (new_w - width) // 2), Emu(top),
+                        Emu(new_w), Emu(height),
+                    )
+                    return pic
+                else:
+                    new_h = int(width / src_ratio)
+                    pic = slide.shapes.add_picture(
+                        str(p),
+                        Emu(left), Emu(top - (new_h - height) // 2),
+                        Emu(width), Emu(new_h),
+                    )
+                    return pic
+
+        pic = slide.shapes.add_picture(
             str(p), Emu(left), Emu(top), Emu(width), Emu(height),
         )
+
+        # Step 2: apply explicit crop via srcRect XML (always applies if set,
+        # regardless of fit_mode — the agent can combine fit_mode=stretch +
+        # crop=<original PPTX srcRect> to faithfully reproduce the source).
+        if crop:
+            _apply_picture_crop(pic, crop)
+        return pic
     except (ValueError, OSError, KeyError):
         return None
+
+
+def add_table(slide, left, top, width, height, cells: list[list[dict]], *,
+              border_color: str = "DDE1E6", border_pt: float = 0.5,
+              header_fill: str | None = None,
+              default_text_color: str = "393939",
+              font_family: str | None = None,
+              font_size_pt: float = 10) -> object | None:
+    """Render a table from a 2D list of cell dicts.
+
+    cells[row][col] = {"text": str, "fill_hex": str|None, "color_hex": str|None}
+
+    Returns the table shape, or None if cells is empty.
+    """
+    if not cells or not cells[0]:
+        return None
+    n_rows = len(cells); n_cols = len(cells[0])
+    table_shape = slide.shapes.add_table(
+        n_rows, n_cols, Emu(left), Emu(top), Emu(width), Emu(height),
+    )
+    tbl = table_shape.table
+    for r, row in enumerate(cells):
+        for c, cell_data in enumerate(row):
+            cell = tbl.cell(r, c)
+            cell.text = cell_data.get("text", "") or ""
+            fill = cell_data.get("fill_hex") or (header_fill if r == 0 else None)
+            if fill:
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = _hex(fill)
+            for paragraph in cell.text_frame.paragraphs:
+                for run in paragraph.runs:
+                    run.font.size = Pt(font_size_pt)
+                    color = cell_data.get("color_hex") or default_text_color
+                    if color:
+                        run.font.color.rgb = _hex(color)
+                    if font_family:
+                        run.font.name = font_family
+    return table_shape
+
+
+def add_chart(slide, left, top, width, height, *,
+              chart_type: str = "BAR_CLUSTERED",
+              categories: list,
+              series: list[dict]) -> object | None:
+    """Render a chart from a category list + series data.
+
+    chart_type: short name matching pptx.enum.chart.XL_CHART_TYPE
+                ("BAR_CLUSTERED", "LINE", "PIE", "COLUMN_CLUSTERED", etc.)
+    series: [{"name": str, "values": [number, ...]}]
+
+    Returns the chart shape, or None if data is empty.
+    """
+    from pptx.chart.data import CategoryChartData
+    from pptx.enum.chart import XL_CHART_TYPE
+
+    if not series or not categories:
+        return None
+    data = CategoryChartData()
+    data.categories = categories
+    for s in series:
+        vals = [v if v is not None else 0 for v in s.get("values", [])]
+        data.add_series(s.get("name") or "", vals)
+    type_enum = getattr(XL_CHART_TYPE, chart_type, XL_CHART_TYPE.BAR_CLUSTERED)
+    chart_frame = slide.shapes.add_chart(
+        type_enum, Emu(left), Emu(top), Emu(width), Emu(height), data,
+    )
+    return chart_frame
+
+
+def add_gradient_background(slide, slide_w: int, slide_h: int,
+                              stops: list[dict], angle: float | None = None) -> object:
+    """Render a gradient as the full-slide background using a rect with
+    a:gradFill XML. python-pptx doesn't expose gradient fill directly,
+    so we build the XML.
+
+    stops: [{"pos": int (0..100000), "color": "RRGGBB"}, ...]
+    angle: degrees (optional). PPTX uses 60000ths of a degree.
+    """
+    from lxml import etree
+    rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE,
+                                    Emu(0), Emu(0),
+                                    Emu(slide_w), Emu(slide_h))
+    # Replace solidFill with gradFill via XML. spPr lives in the `p:`
+    # namespace for autoshapes (presentationml), not `a:` (drawingml).
+    p_ns = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
+    sp_pr = rect._element.find(f"{p_ns}spPr")
+    if sp_pr is None:
+        # Fallback: any spPr regardless of namespace.
+        for el in rect._element.iter():
+            if el.tag.endswith("}spPr"):
+                sp_pr = el
+                break
+    if sp_pr is None:
+        return rect  # graceful: bare rect rendered, no gradient applied
+    # Strip existing fills (drawingml namespace for fill children).
+    ns = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+    for tag in ("solidFill", "gradFill", "blipFill", "noFill"):
+        for el in sp_pr.findall(f"{ns}{tag}"):
+            sp_pr.remove(el)
+    grad = etree.SubElement(sp_pr, f"{ns}gradFill",
+                              {"flip": "none", "rotWithShape": "1"})
+    gs_lst = etree.SubElement(grad, f"{ns}gsLst")
+    for stop in stops:
+        gs = etree.SubElement(gs_lst, f"{ns}gs",
+                                {"pos": str(int(stop.get("pos", 0)))})
+        srgb = etree.SubElement(gs, f"{ns}srgbClr",
+                                  {"val": stop.get("color", "FFFFFF").lstrip("#")})
+    if angle is not None:
+        etree.SubElement(grad, f"{ns}lin",
+                          {"ang": str(int(angle * 60000)), "scaled": "0"})
+    # Send to back so content renders above.
+    try:
+        sp_tree = rect._element.getparent()
+        sp_tree.remove(rect._element)
+        sp_tree.insert(2, rect._element)
+    except (AttributeError, ValueError):
+        pass
+    # No border on background.
+    try:
+        rect.line.fill.background()
+    except (AttributeError, ValueError):
+        pass
+    return rect
+
+
+def _apply_picture_crop(pic, crop: dict) -> None:
+    """Set srcRect on a picture shape via XML.
+
+    crop values are fractions 0..1; PPTX stores them as 1000ths of a
+    percent (i.e. fraction × 100000) in the XML.
+    """
+    from lxml import etree
+    nsmap = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
+    blipFill = pic._element.find(".//a:blipFill", nsmap)
+    if blipFill is None:
+        return
+    # Remove any existing srcRect to avoid duplicates.
+    for old in blipFill.findall("a:srcRect", nsmap):
+        blipFill.remove(old)
+    src = etree.SubElement(blipFill,
+                            "{http://schemas.openxmlformats.org/drawingml/2006/main}srcRect")
+    for side in ("left", "top", "right", "bottom"):
+        v = crop.get(side, 0.0)
+        if v:
+            src.set(side, str(int(round(float(v) * 100000))))
+    # blipFill in pptx requires srcRect BEFORE the stretch element. Move it
+    # to the front so OOXML stays well-ordered.
+    blipFill.insert(1, src)  # after blip, before stretch
 
 
 def aspect_fit_box(content_w: int, content_h: int,
@@ -243,4 +440,10 @@ def add_rich_text(slide, left, top, width, height, runs: list[dict], *,
             family = run_data.get("font_family") or default_family
             if family:
                 r.font.name = family
+            link = run_data.get("hyperlink")
+            if link:
+                try:
+                    r.hyperlink.address = link
+                except (AttributeError, ValueError):
+                    pass
     return box

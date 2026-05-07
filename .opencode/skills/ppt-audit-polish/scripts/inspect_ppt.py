@@ -122,6 +122,14 @@ def _text_runs(shape) -> list[dict]:
                     color_hex = str(font.color.rgb)
             except (AttributeError, ValueError, KeyError):
                 pass
+            # Hyperlink (run.hyperlink.address)
+            hyperlink: str | None = None
+            try:
+                hl = run.hyperlink
+                if hl is not None and hl.address:
+                    hyperlink = str(hl.address)
+            except (AttributeError, ValueError, KeyError):
+                pass
             runs.append({
                 "text": text,
                 "font_family": getattr(font, "name", None),
@@ -129,6 +137,7 @@ def _text_runs(shape) -> list[dict]:
                 "bold": bool(getattr(font, "bold", False)) if font.bold is not None else None,
                 "italic": bool(getattr(font, "italic", False)) if font.italic is not None else None,
                 "color_hex": color_hex,
+                "hyperlink": hyperlink,
                 "paragraph_index": p_idx,
                 "run_index": r_idx,
             })

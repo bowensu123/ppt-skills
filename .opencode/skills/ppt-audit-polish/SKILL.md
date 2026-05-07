@@ -264,51 +264,65 @@ When polish ceiling is too low, regenerate produces a fresh slide. **The layout 
 
 A small set of **preset templates** are kept as a fallback for batch / time-pressured cases, but the headline path is free-form.
 
-### 5-layer zero-blind-spot preservation
+### 11-layer zero-blind-spot preservation
 
-Path B captures EVERY visible element across 5 manifests. Together they
-guarantee no image, icon, emoji, or text is lost when regenerating:
+Path B captures EVERY visible element across 11 manifests. The agent
+reads them all to design layout.json with 100% fidelity to the original.
 
-| Layer | Source | Captures | Used in layout.json as |
+| Layer | Source | Captures | Used in layout.json |
 |---|---|---|---|
-| **L1: text + emoji** | `extract_content.py` → `content.json` | Title / subtitle / items[].name / .description / .details / footer. Emoji are Unicode chars — preserved by UTF-8. | `kind: text` with `ref: title` etc. |
-| **L2: run-level format** | `extract_content.py` → `content.json` items[].name_runs / description_runs | Per-run font / size / bold / italic / color (mixed-format text). | `kind: rich_text` with `runs_ref: items.0.name_runs` |
-| **L3: pictures + raster icons** | `_asset_extract.py` → `assets-manifest.json` + `assets/sid_*.{ext}` | PNG / JPEG / SVG / EMF binaries via `shape.image.blob` — zero loss. | `kind: image` with `ref: items.0.image` |
-| **L4: vector decorations** | `_decoration_extract.py` → `decorations.json` | Custom-shape icons (OVAL / RECTANGLE / etc. with fills) — including inherited shapes from slide_layout + slide_master. | `kind: circle / rect / rounded_rect / line` with explicit fill/border |
-| **L5: full geometry** | `inspect_ppt.py` → `inspection.json` | Every shape's bbox / font / color / kind for cross-reference. | Read by agent for layout reasoning. |
+| **L1: text + emoji** | `extract_content.py` → `content.json` | Title / subtitle / items[].name / .description / footer. Emoji are Unicode → UTF-8 preserved. | `kind: text` with `ref: title` |
+| **L2: run-level format** | `extract_content.py` → items[].name_runs | Per-run font / size / bold / italic / color (mixed-format text) | `kind: rich_text` with `runs_ref: items.0.name_runs` |
+| **L3: hyperlinks** | `inspect_ppt.py` → text_runs[].hyperlink | URL per run, applied via run.hyperlink.address | Auto-applied by `kind: text` / `rich_text` when run has hyperlink |
+| **L4: pictures** | `_asset_extract.py` → `assets/sid_*.{ext}` + `crop` field | PNG / JPEG / SVG / EMF binaries via `shape.image.blob`. Original `srcRect` cropping preserved. | `kind: image` with `ref: items.0.image` + `fit_mode` + `crop` |
+| **L5: vector decorations** | `_decoration_extract.py` → `decorations.json` | OVAL / RECTANGLE / ROUNDED_RECT / etc. with fills, including master/layout inheritance | `kind: circle / rect / rounded_rect` |
+| **L6: slide backgrounds** | `_advanced_extract.py` → `background.json` | Solid / gradient / picture backgrounds from slide or master | layout.json top-level `background: {...}` |
+| **L7: tables** | `_advanced_extract.py` → `tables.json` | Per-cell text + fill in row × col grid | `kind: table` with `cells` or `ref` |
+| **L8: charts** | `_advanced_extract.py` → `charts.json` | Chart type + categories + series data | `kind: chart` with `chart_type` + `categories` + `series` |
+| **L9: SmartArt** | `_advanced_extract.py` → `smartart.json` | Detected SmartArt blocks with extracted text | Agent rebuilds with primitives or treats as decoration |
+| **L10: WordArt effects** | `_advanced_extract.py` → `wordart-effects.json` | Per-run gradient / outline / shadow / glow on text | Agent applies inline effect XML or renders as image |
+| **L11: group-flattened geom** | `_advanced_extract.py` → `flattened-shapes.json` | World-coord bbox for nested children of groups (group transform applied) | Replaces declared bbox when group transforms are non-trivial |
+| **L12: full geometry** | `inspect_ppt.py` → `inspection.json` | Every shape's bbox / font / color / kind | Read by agent for cross-reference |
 
 ### Free-form flow
 
 ```
 INPUT: deck.pptx
    ↓
-[1] extract_content.py    → content.json
-                            (title/subtitle/items[]/footer +
-                             name_runs/description_runs)
-[2] _asset_extract.py     → assets-manifest.json + assets/sid_*.png
-                            (binary images)
+[1] extract_content.py     → content.json
+                              (title/subtitle/items[] + name_runs/
+                               description_runs + hyperlinks via inspect)
+[2] _asset_extract.py      → assets-manifest.json + assets/sid_*.png
+                              (binary images + srcRect crops)
 [3] _decoration_extract.py → decorations.json
-                            (vector icons + inherited master/layout shapes)
-[4] state_summary.py      → render PNG + annotated PNG
+                              (vector icons + master/layout inheritance)
+[4] _advanced_extract.py   → background.json, tables.json, charts.json,
+                              smartart.json, wordart-effects.json,
+                              flattened-shapes.json
+[5] state_summary.py       → render PNG + annotated PNG + svg-signals
    ↓
-[5] AGENT (multimodal):
-     reads ALL 5 manifests above
+[6] AGENT (multimodal):
+     reads ALL manifests above
      decides:
        - Is content sequential / parallel / hierarchical / hybrid?
        - How many columns / rows fit best for THIS item count?
        - Where should the title go?
-       - Which images map to which items?
+       - Which images map to which items? (image-attribution)
        - Which decorations are item-icons vs slide-chrome?
-       - Should mixed-formatted titles use `rich_text` (preserve runs)
-         or `text` (theme-driven flat)?
+       - Should the slide background be preserved (gradient / picture)
+         or replaced with theme-driven solid?
+       - Should tables / charts be rebuilt with their original data?
+       - Should SmartArt be rebuilt as primitive shapes or kept opaque?
+       - Should mixed-formatted titles use rich_text (preserve runs)
+         or text (theme-driven flat)?
      writes:
        - layout.json   (free-form layout spec; references all manifests
-                         via dotted refs into content.json)
+                         via dotted refs)
        - updates items[].image / decorations[] in content.json
    ↓
-[6] apply_layout.py       → fresh.pptx
+[7] apply_layout.py        → fresh.pptx
    ↓
-[7] state_summary.py --diff-from deck.pptx   → final 3-part report
+[8] state_summary.py --diff-from deck.pptx  → final 3-part report
 ```
 
 #### layout.json schema (the agent writes this)

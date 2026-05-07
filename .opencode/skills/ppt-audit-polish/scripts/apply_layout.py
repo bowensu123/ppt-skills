@@ -41,10 +41,26 @@ Layout JSON schema:
        "align": "left", "v_align": "middle"},
       {"kind": "image", "bbox": [...],
        "path": "assets/sid_42.png",   // direct path OR
-       "ref": "items.0.image"},        // dotted path to image dict
+       "ref": "items.0.image",         // dotted path to image dict
+       "fit_mode": "stretch|contain|cover", // default stretch
+       "crop": {"left":0.1,"top":0.05,"right":0.05,"bottom":0.1}, // optional
+       "z_index": 5},                  // optional, sorts render order
+      {"kind": "table", "bbox": [...],
+       "cells": [[{"text":"...","fill_hex":"..."}, ...], ...],   // OR
+       "ref": "tables.0.cells"},
+      {"kind": "chart", "bbox": [...],
+       "chart_type": "BAR_CLUSTERED",
+       "categories": [...],
+       "series": [{"name": "...", "values": [...]}]},
       ...
     ]
   }
+
+  Top-level "background" can be:
+    - "FFFFFF"         (solid hex shorthand)
+    - {"type": "solid",    "color": "..."}
+    - {"type": "gradient", "stops": [{"pos":0,"color":"..."}], "angle": 0}
+    - {"type": "picture",  "path": "..."}
 
 Refs are dotted paths: `title`, `subtitle`, `items.0.name`,
 `items.3.description`, `items.0.image` (image refs return the dict
@@ -98,8 +114,9 @@ def render_layout(layout: dict, content: dict, out_path: Path,
     if str(TEMPLATES_DIR) not in sys.path:
         sys.path.insert(0, str(TEMPLATES_DIR))
     from _base import (
-        add_blank_slide, add_image_from_path, add_rect, add_rich_text,
-        add_rounded_rect, add_text, wipe_slides,
+        add_blank_slide, add_chart, add_gradient_background,
+        add_image_from_path, add_rect, add_rich_text, add_rounded_rect,
+        add_table, add_text, wipe_slides,
     )
     # add_circle and add_line aren't exported by _base (line uses connector
     # API directly); use python-pptx primitives where _base helpers don't fit.
@@ -116,15 +133,46 @@ def render_layout(layout: dict, content: dict, out_path: Path,
     wipe_slides(prs)
     slide = add_blank_slide(prs)
 
-    # Optional background fill — short-hand for a full-bleed rect.
+    # Optional background — string for solid color, dict for gradient/picture.
     bg = layout.get("background")
-    if bg:
+    if isinstance(bg, str):
         add_rect(slide, 0, 0, SW, SH, fill=bg, line="none")
+    elif isinstance(bg, dict):
+        bg_type = bg.get("type")
+        if bg_type == "solid" and bg.get("color"):
+            color = bg["color"]
+            if not color.startswith("@"):
+                add_rect(slide, 0, 0, SW, SH, fill=color, line="none")
+        elif bg_type == "gradient":
+            stops = bg.get("stops") or []
+            stops = [s for s in stops if not str(s.get("color", "")).startswith("@")]
+            if stops:
+                add_gradient_background(slide, SW, SH, stops,
+                                         angle=bg.get("angle"))
+        elif bg_type == "picture" and bg.get("path"):
+            from pathlib import Path as _P
+            path = _P(bg["path"])
+            if not path.is_absolute() and assets_base:
+                path = assets_base / bg["path"]
+            if path.exists():
+                add_image_from_path(slide, str(path), 0, 0, SW, SH,
+                                     fit_mode="cover")
 
     skipped: list[dict] = []
     rendered_count = 0
 
-    for el in layout.get("elements", []):
+    # If any element has an explicit z_index, render in z-order (back-to-
+    # front). Elements without z_index keep their original layout.json
+    # position, which becomes their effective z_index.
+    elements = list(enumerate(layout.get("elements", [])))
+    if any("z_index" in el for _, el in elements):
+        elements.sort(key=lambda pair: (
+            int(pair[1].get("z_index", pair[0])),
+            pair[0],   # stable tie-break by original order
+        ))
+    elements = [el for _, el in elements]
+
+    for el in elements:
         kind = el.get("kind")
         bbox = el.get("bbox") or [0, 0, 0, 0]
 
@@ -224,6 +272,42 @@ def render_layout(layout: dict, content: dict, out_path: Path,
                           fill=el.get("fill"))
             rendered_count += 1
 
+        elif kind == "table":
+            cells = el.get("cells")
+            if not cells and el.get("ref"):
+                cells = _resolve_ref(content, el["ref"])
+            if not cells:
+                skipped.append({"reason": "table-no-cells"})
+                continue
+            result = add_table(slide, bbox[0], bbox[1], bbox[2], bbox[3],
+                                cells,
+                                border_color=el.get("border_color", "DDE1E6"),
+                                border_pt=float(el.get("border_pt", 0.5)),
+                                header_fill=el.get("header_fill"),
+                                default_text_color=el.get("color", "393939"),
+                                font_family=el.get("font"),
+                                font_size_pt=float(el.get("size_pt", 10)))
+            if result:
+                rendered_count += 1
+
+        elif kind == "chart":
+            categories = el.get("categories") or []
+            series = el.get("series") or []
+            if el.get("ref"):
+                resolved = _resolve_ref(content, el["ref"])
+                if isinstance(resolved, dict):
+                    categories = resolved.get("categories") or categories
+                    series = resolved.get("series") or series
+            if not series or not categories:
+                skipped.append({"reason": "chart-no-data"})
+                continue
+            result = add_chart(slide, bbox[0], bbox[1], bbox[2], bbox[3],
+                                chart_type=el.get("chart_type", "BAR_CLUSTERED"),
+                                categories=categories,
+                                series=series)
+            if result:
+                rendered_count += 1
+
         elif kind == "image":
             # Resolve image path: explicit path or ref into content.
             img_path = el.get("path")
@@ -245,8 +329,12 @@ def render_layout(layout: dict, content: dict, out_path: Path,
             if not p.exists():
                 skipped.append({"reason": "image-not-found", "path": str(p)})
                 continue
-            result = add_image_from_path(slide, str(p),
-                                          bbox[0], bbox[1], bbox[2], bbox[3])
+            result = add_image_from_path(
+                slide, str(p),
+                bbox[0], bbox[1], bbox[2], bbox[3],
+                fit_mode=el.get("fit_mode", "stretch"),
+                crop=el.get("crop"),
+            )
             if result is None:
                 skipped.append({"reason": "image-render-failed", "path": str(p)})
             else:

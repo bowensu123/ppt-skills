@@ -76,6 +76,39 @@ def _iter_picture_shapes(slide):
     yield from walk(slide.shapes, [])
 
 
+def _picture_crop(shape) -> dict | None:
+    """Return srcRect as fractions 0..1 if the picture has one, else None.
+
+    PPTX stores srcRect with values in 1000ths of a percent. blipFill
+    sits in either `p:` (slide pic) or `a:` (drawingml pic in
+    graphicFrame) namespace — try both.
+    """
+    from lxml import etree
+    nsmap = {
+        "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+        "p": "http://schemas.openxmlformats.org/presentationml/2006/main",
+    }
+    src = None
+    try:
+        for path in (".//p:blipFill/a:srcRect", ".//a:blipFill/a:srcRect"):
+            src = shape._element.find(path, nsmap)
+            if src is not None:
+                break
+    except (AttributeError, etree.LxmlError):
+        return None
+    if src is None:
+        return None
+    out: dict[str, float] = {}
+    for side in ("left", "top", "right", "bottom"):
+        raw = src.get(side)
+        if raw is not None:
+            try:
+                out[side] = float(raw) / 100000.0
+            except (TypeError, ValueError):
+                continue
+    return out if out else None
+
+
 def _decorative_hint(shape, slide_w: int, slide_h: int) -> bool:
     """Heuristic: small area + close to slide edge → probably a logo/chrome."""
     try:
@@ -148,6 +181,7 @@ def extract_assets(input_path: Path, work_dir: Path) -> dict:
                 "parent_groups": parent_chain,
                 "size_bytes": len(blob),
                 "decorative_hint": _decorative_hint(shape, slide_w, slide_h),
+                "crop": _picture_crop(shape),
             })
 
     manifest = {
