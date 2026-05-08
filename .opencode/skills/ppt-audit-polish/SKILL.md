@@ -22,13 +22,22 @@ The user is asking YOU (the OpenCode agent) to drive the polish work. You use yo
 
 ## FAST PATH: one-click polish (when user says "一键美化")
 
-Run a single command — no iteration, no per-step verification. The
-script chains `asset-extract → repair → unify-font → polish-business`
-and runs state_summary at start and end so the user sees a baseline-
-vs-final report.
+**Pre-step (mandatory)**: before running `polish.py`, ask the user
+which theme they want. Read
+[`themes/THEMES_OVERVIEW.md`](themes/THEMES_OVERVIEW.md), present
+top-3 best-fit themes based on the deck content, plus a "see all 16"
+option. Wait for user choice. Skip this question only when the user
+already specified a theme in the original instruction (e.g., "一键
+美化用 huawei 风格") or said "auto / 随便 / 你决定".
+
+Once theme is chosen, run a single command — no iteration, no per-step
+verification. The script chains `asset-extract → repair → unify-font →
+polish-business` and runs state_summary at start and end so the user
+sees a baseline-vs-final report.
 
 ```bash
-python scripts/polish.py --in <input.pptx> --out <output.pptx>
+python scripts/polish.py --in <input.pptx> --out <output.pptx> \
+    --theme themes/<user-chosen>.json
 ```
 
 Optional flags:
@@ -712,7 +721,31 @@ See [docs/mutate-ops.md](docs/mutate-ops.md) for all 45 ops.
 
 ## Themes (16 built-in)
 
-Pass `--theme themes/<name>.json` to `apply-typography`, `apply-card-style`, `apply-badge-style`, `style-connector`, `polish-business`. Or omit `--theme` and let the auto-picker (content keywords + slide background luminance) decide.
+**Agent rule** (mandatory): when the user invokes `polish-business` /
+`polish.py` / Path B without specifying a theme, the agent MUST ASK
+the user to choose a theme before running. Do NOT silently auto-pick.
+
+Workflow:
+  1. Read [`themes/THEMES_OVERVIEW.md`](themes/THEMES_OVERVIEW.md) — the canonical theme list (16 entries with one-line descriptions).
+  2. Glance at the deck's content (extract_content output OR a quick
+     read of inspection.json).
+  3. Pick the **top 3 most-likely-fit themes** based on the content's
+     domain (tech / business / data / academic / brand / etc.).
+  4. Present them to the user with a one-line description each + offer
+     "see all 16" as a fallback option.
+  5. Wait for user response. Accept theme name OR number from the list.
+  6. Run `polish-business` / `polish.py` with `--theme themes/<chosen>.json`.
+
+Skip the question only when:
+  - User specified theme in original instruction ("用 huawei 风格")
+  - User said "auto" / "随便" / "你决定" — then fall back to keyword
+    auto-picker (`_business_polish.pick_theme()`)
+  - Batch / CLI mode (no agent-driver loop) — `polish-business`'s
+    internal pick_theme runs as fallback
+
+Themes can be passed via `--theme themes/<name>.json` to:
+`apply-typography`, `apply-card-style`, `apply-badge-style`,
+`style-connector`, `polish-business`, `polish.py`.
 
 **Original 5** (general-purpose):
 
