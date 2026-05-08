@@ -12,7 +12,6 @@ import pytest
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_ROOT / "scripts"))
-sys.path.insert(0, str(SKILL_ROOT / "templates_py"))
 
 
 # ---- inspect_ppt _text_runs ----

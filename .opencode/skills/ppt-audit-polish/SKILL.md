@@ -1,13 +1,13 @@
 ---
 name: ppt-audit-polish
-description: Audit, polish, and re-template PowerPoint decks. The OpenCode agent drives the loop using its own multimodal model — inspect, render, look, mutate or regenerate. Two diagnostic modes (audit, polish via mutate) plus three template-based regenerate modes for decks whose structural ceiling is too low to fix with mutation alone.
+description: Audit, polish, and regenerate PowerPoint decks. The OpenCode agent drives the loop using its own multimodal model — inspect, render, look, mutate. Two paths: Path A polishes the original deck in place; Path B regenerates layout from scratch (preserve-identity or free-form). Layout is always agent-designed — no fixed templates.
 compatibility: opencode
 metadata:
   audience: presentation-authors
   workflow: ppt-review
   ops_count: 56
   themes_count: 15
-  templates_count: 1
+  templates_count: 0
 ---
 
 ## When to invoke
@@ -168,10 +168,13 @@ Path A: POLISH       — keep existing layout, repair structural bugs and apply 
                        structural (peer-card outliers, overlap, alignment drift).
                        Output: <stem>.polished.pptx
 
-Path B: REGENERATE   — extract content, drop into a fresh template.
-                       Best when score baseline < 25 AND density/hierarchy are
-                       very low (deck design itself is the problem, not bugs).
-                       Output: <stem>.regen-<template>.pptx
+Path B: REGENERATE   — extract content + assets + relationships,
+                       agent designs layout from scratch (no preset
+                       templates), apply via apply_relocation.py
+                       (preserve-identity) or apply_layout.py (free-form).
+                       Best when baseline < 25 AND density/hierarchy are
+                       very low (deck design itself is the problem).
+                       Output: <stem>.polished.pptx
 ```
 
 ### Decision rule (in STEP A of the loop)
@@ -501,31 +504,24 @@ The agent has discretion only over:
      shape is preserve_identity; lost when recreate. Agent's default
      rationale flags inbound references so this is not accidental.
 
-### Preset templates (fallback path)
+### Layout is always agent-designed — no preset templates
 
-When the agent doesn't want to design from scratch (batch jobs, simple decks), use the one remaining preset:
+The skill ships **zero fixed templates**. Every layout is designed by
+the agent per slide based on content + render + composition descriptor
++ DESIGN_PRINCIPLES.md. The previous preset templates (horizontal-
+timeline / grid-2x3 / feature-list / claude-code) were all removed
+because they constrained the agent to mechanical patterns that often
+didn't fit specific content.
 
-| Template | Best for | Pick when… |
-|---|---|---|
-| `claude-code` | Dev tools, AI products, code/agent showcases | Technical content with CLI/code aesthetic. Renders item images replacing the chevron when attributed. Pairs with the `claude-code` theme. |
+For Path B, the agent always:
+  1. Reads extractor manifests + render PNG + DESIGN_PRINCIPLES.md
+  2. Reasons about THIS slide's communication goal in 1 sentence
+  3. Designs `layout.json` (free-form) OR `relocation.json` (preserve-
+     identity) with explicit element bboxes per slide
+  4. Renders via `apply_layout.py` or `apply_relocation.py`
+  5. Reads result + iterates if needed
 
-The previous fixed templates (`horizontal-timeline`, `grid-2x3`, `feature-list`) were removed: agent-designed free-form layouts via `apply_layout.py` cover their cases more flexibly. Use the free-form path above (Steps 1-5) instead.
-
-### Inspecting available templates
-
-```bash
-python scripts/apply_template.py --list
-```
-
-### How regenerate works internally
-
-```
-extract_content.py    → content.json   (title, subtitle, badge, items[], footer)
-apply_template.py     → fresh.pptx     (renders content into chosen template)
-state_summary.py      → state JSON     (scored vs baseline)
-```
-
-### Path B agent-driven decision flow
+### Path B agent decision flow
 
 ```
 INIT (same as Path A)
@@ -535,66 +531,66 @@ INIT (same as Path A)
 
 DECIDE (whether to switch to Path B)
   if baseline_score < 25 and (density_score < 30 or hierarchy_score < 50):
-      Tell user: "polish 上限低，建议重新套模板"
-      → on user confirm: enter Path B template-selection below
+      Tell user: "polish 上限低，建议重新设计版式"
+      → on user confirm: enter Path B layout-design below
   else:
       stay in Path A polish loop
 
-PATH B — STEP 1: Extract content
-  python scripts/extract_content.py --in input.pptx --work-dir regen/
-  → produces regen/content.json
+PATH B — STEP 1: Extract everything
+  python scripts/extract_content.py     --in input.pptx --work-dir regen/
+  python scripts/_asset_extract.py       --in input.pptx --work-dir regen/
+  python scripts/_decoration_extract.py  --in input.pptx --work-dir regen/
+  python scripts/_advanced_extract.py    --in input.pptx --work-dir regen/
+  python scripts/_relationships_extract.py --in input.pptx --work-dir regen/
 
-PATH B — STEP 2: Look + judge (THE AGENT-DECISION STEP)
-  Read regen/content.json + assets-manifest.json + decorations.json.
-  Look at state-0/render/slide-001.png and the annotated render.
+PATH B — STEP 2: Look + judge (THE AGENT-DESIGN STEP)
+  Read regen/content.json + assets-manifest.json + decorations.json +
+       relationships.json + state-0/render/slide-001.png + DESIGN_PRINCIPLES.md.
   Reason about layout fit (1 sentence): how many columns/rows? where
   does the title go? which images map to which items? which decorations
-  are item-icons vs slide chrome?
+  are item-icons vs slide chrome? do any shapes have inbound references
+  that require preserve_identity?
 
-  Write a `layout.json` with explicit element bboxes (see schema
-  documented above for `apply_layout.py`). The agent designs the
-  layout from scratch — there are no preset patterns to pick from.
+  Choose render mode:
+    - relocation.json + apply_relocation.py
+        → preserve original shape_ids / names / placeholder types /
+          connector endpoints / hyperlinks / batch refs (RECOMMENDED)
+    - layout.json + apply_layout.py
+        → free-form rebuild from primitives (lose shape identity but
+          enable fundamental redesign)
 
-PATH B — STEP 3: Render via apply_layout.py
+  Write the chosen JSON. The layout is ENTIRELY YOURS to design — no
+  preset patterns to pick from. Use any combination of the supported
+  element kinds: fill / rect / rounded_rect / circle / line / text /
+  rich_text / image / table / chart.
+
+PATH B — STEP 3: Render
+  # preserve-identity (recommended)
+  python scripts/apply_relocation.py \
+      --in deck.pptx \
+      --relocation regen/relocation.json \
+      --out regen/<stem>.polished.pptx
+  # OR free-form rebuild
   python scripts/apply_layout.py \
       --content regen/content.json \
       --layout regen/layout.json \
       --out regen/<stem>.polished.pptx \
       --assets-base regen/
 
-PATH B — STEP 4: Report 3 parts (same template as Path A)
+PATH B — STEP 4: Report 3 parts (same as Path A)
   ▸ NUMERIC: baseline → regenerated (Δ from state_summary)
   ▸ VISUAL:  read regen/<stem>.polished.pptx render and describe it
-  ▸ DECISION: ADOPT or iterate (rewrite layout.json) until visual passes
+  ▸ DECISION: ADOPT or iterate (rewrite the JSON) until visual passes
               the 5 design-principle checks
 
 REPORT
   baseline 0.0 (poor) → regenerated 82.79 (good)
   layout strategy: 3-row vertical list (chosen because items had clear
                     "Zero-shot → Few-shot → Many-shot" sequence pattern)
+  preserved identities: 18 (all panels, all text shapes)
+  recreated: 6 (decorative bars)
   output: <work-dir>/<stem>.polished.pptx
 ```
-
-### CLI
-
-```bash
-# Free-form agent-designed layout (recommended)
-python scripts/apply_layout.py \
-    --content out/content.json \
-    --layout out/layout.json \
-    --out fresh.pptx \
-    --assets-base out/
-
-# Or use the one preset (claude-code aesthetic for dev/AI content)
-python scripts/regenerate.py --in deck.pptx --work-dir out/ \
-    --template claude-code
-```
-
-The preset templates `horizontal-timeline`, `grid-2x3`, and
-`feature-list` were removed — agent-designed free-form layouts cover
-their cases more flexibly without locking the agent into a fixed
-visual pattern. Only `claude-code` remains as a preset for batch jobs
-where the dark-terminal aesthetic fits the content.
 
 ### What you (the agent) MUST do
 

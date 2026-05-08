@@ -88,7 +88,6 @@ from pptx.util import Emu, Pt
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-TEMPLATES_DIR = SCRIPT_DIR.parent / "templates_py"
 
 
 def _hex_to_rgb(hex_str: str) -> RGBColor:
@@ -210,7 +209,7 @@ def _add_recreated(slide, decision: dict, captured_text: str | None,
             Path(tmp_path).unlink(missing_ok=True)
 
     if kind == "text" or captured_text:
-        from templates_py._base import add_text  # type: ignore
+        from _base import add_text  # type: ignore
         # Fall back to direct API.
         box = slide.shapes.add_textbox(Emu(L), Emu(T), Emu(W), Emu(H))
         if captured_text:
@@ -258,8 +257,6 @@ def _add_recreated(slide, decision: dict, captured_text: str | None,
 # ---- add new decorative shapes ----
 
 def _add_new_shape(slide, spec: dict) -> dict:
-    if str(TEMPLATES_DIR) not in sys.path:
-        sys.path.insert(0, str(TEMPLATES_DIR))
     from _base import (
         add_image_from_path, add_rect, add_rounded_rect, add_text,
     )

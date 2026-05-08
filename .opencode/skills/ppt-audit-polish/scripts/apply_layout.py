@@ -88,7 +88,6 @@ from pptx.util import Emu
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_ROOT = SCRIPT_DIR.parent
-TEMPLATES_DIR = SKILL_ROOT / "templates_py"
 
 
 def _resolve_ref(content: dict, ref: str):
@@ -111,8 +110,6 @@ def _resolve_ref(content: dict, ref: str):
 
 def render_layout(layout: dict, content: dict, out_path: Path,
                    assets_base: Path | None = None) -> dict:
-    if str(TEMPLATES_DIR) not in sys.path:
-        sys.path.insert(0, str(TEMPLATES_DIR))
     from _base import (
         add_blank_slide, add_chart, add_gradient_background,
         add_image_from_path, add_rect, add_rich_text, add_rounded_rect,
