@@ -1,0 +1,60 @@
+{
+  "name": "academic-research",
+  "palette": {
+    "primary": "2D5F3F",
+    "primary_soft": "E8F0E9",
+    "accent": "8B4513",
+    "accent_warn": "8B0000",
+    "text_strong": "1A1A1A",
+    "text": "2F2F2F",
+    "text_muted": "5F5F5F",
+    "background": "FBF8F4",
+    "surface": "FFFFFF",
+    "border": "C8C0B0"
+  },
+  "typography": {
+    "font_family": "Source Han Serif SC",
+    "size_pt": {
+      "title": 24,
+      "subtitle": 13,
+      "h2": 13,
+      "body": 11,
+      "caption": 9,
+      "badge": 10
+    },
+    "bold": {
+      "title": true,
+      "subtitle": false,
+      "h2": true,
+      "body": false,
+      "caption": false,
+      "badge": false
+    },
+    "color_role": {
+      "title": "text_strong",
+      "subtitle": "text_muted",
+      "h2": "primary",
+      "body": "text",
+      "caption": "text_muted",
+      "badge": "primary"
+    }
+  },
+  "spacing": {
+    "slide_padding_emu": 457200,
+    "card_padding_emu": 182880,
+    "row_min_gap_emu": 137160,
+    "col_min_gap_emu": 137160,
+    "subtitle_gap_below_title_emu": 76200
+  },
+  "decoration": {
+    "card_fill_role": "surface",
+    "card_border_role": "border",
+    "card_border_pt": 0.25,
+    "card_corner_radius_ratio": 0.0,
+    "card_shadow": false,
+    "badge_fill_role": "primary_soft",
+    "section_fill_role": "primary_soft",
+    "connector_color_role": "text_muted",
+    "connector_pt": 0.5
+  }
+}

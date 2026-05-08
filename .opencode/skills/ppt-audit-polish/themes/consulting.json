@@ -1,0 +1,60 @@
+{
+  "name": "consulting",
+  "palette": {
+    "primary": "1F3864",
+    "primary_soft": "DEEBF7",
+    "accent": "800020",
+    "accent_warn": "C5504B",
+    "text_strong": "1F1F1F",
+    "text": "404040",
+    "text_muted": "595959",
+    "background": "FAFAFA",
+    "surface": "FFFFFF",
+    "border": "BFBFBF"
+  },
+  "typography": {
+    "font_family": "Microsoft YaHei",
+    "size_pt": {
+      "title": 24,
+      "subtitle": 12,
+      "h2": 14,
+      "body": 10,
+      "caption": 8,
+      "badge": 9
+    },
+    "bold": {
+      "title": true,
+      "subtitle": false,
+      "h2": true,
+      "body": false,
+      "caption": false,
+      "badge": true
+    },
+    "color_role": {
+      "title": "text_strong",
+      "subtitle": "primary",
+      "h2": "primary",
+      "body": "text",
+      "caption": "text_muted",
+      "badge": "background"
+    }
+  },
+  "spacing": {
+    "slide_padding_emu": 457200,
+    "card_padding_emu": 137160,
+    "row_min_gap_emu": 137160,
+    "col_min_gap_emu": 137160,
+    "subtitle_gap_below_title_emu": 76200
+  },
+  "decoration": {
+    "card_fill_role": "surface",
+    "card_border_role": "border",
+    "card_border_pt": 0.5,
+    "card_corner_radius_ratio": 0.02,
+    "card_shadow": false,
+    "badge_fill_role": "primary",
+    "section_fill_role": "primary_soft",
+    "connector_color_role": "primary",
+    "connector_pt": 1.0
+  }
+}

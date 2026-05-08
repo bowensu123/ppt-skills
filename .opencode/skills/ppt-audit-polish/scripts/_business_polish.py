@@ -389,6 +389,7 @@ def tint_subtitle_background(prs, theme, role_data: dict) -> list[dict]:
 # Domain keyword fingerprints for the 4 built-in themes. Hand-tuned;
 # the agent can override with --theme.
 THEME_KEYWORDS = {
+    # ── original 5 ────────────────────────────────────────────────
     "clean-tech":     ["框架", "模型", "AI", "算法", "API", "data", "model",
                        "tensor", "neural", "vision", "embed",
                        "tech", "infrastructure", "deploy"],
@@ -409,6 +410,48 @@ THEME_KEYWORDS = {
                        "compile", "runtime", "env", "config", "yaml", "json",
                        "Python", "TypeScript", "Rust", "Go", "Node",
                        "工具链", "脚本", "CLI", "终端", "命令行"],
+
+    # ── new 10 (per user request) ────────────────────────────────
+    "minimalist-business":
+        ["麦肯锡", "贝恩", "BCG", "提案", "transformation", "并购",
+         "M&A", "重组", "战略选择", "McKinsey", "Bain", "consulting firm",
+         "PMO", "战略转型", "组织设计"],
+    "consulting":
+        ["金字塔", "瀑布图", "MECE", "takeaway", "矩阵图",
+         "议题树", "假设驱动", "敏感性分析", "结构化分析",
+         "盈利模型", "5C", "4P", "SWOT"],
+    "modern-tech":
+        ["Stripe", "Linear", "Vercel", "Notion", "SaaS",
+         "subscription", "platform", "微服务", "云原生",
+         "DevOps", "Kubernetes", "container", "serverless"],
+    "corporate-classic":
+        ["年报", "上市", "财报披露", "国资", "央企", "信用评级",
+         "审计", "合规", "董事会", "股东大会", "监管", "ESG",
+         "信息披露", "投资者关系"],
+    "pitch-deck":
+        ["融资", "估值", "种子轮", "天使轮", "BP", "TAM", "SAM", "SOM",
+         "Y Combinator", "Sequoia", "a16z", "valuation", "term sheet",
+         "preseed", "Series", "投资人", "募资"],
+    "editorial-magazine":
+        ["杂志", "lifestyle", "campaign", "时尚", "新品发布",
+         "品牌故事", "Vogue", "GQ", "Elle", "时装", "潮流",
+         "buyer", "lookbook", "趋势报告"],
+    "data-heavy":
+        ["GMV", "DAU", "MAU", "MRR", "LTV", "CAC", "运营复盘",
+         "财务复盘", "市场研究", "数据看板", "ARPU", "留存率",
+         "渠道分析", "漏斗", "cohort"],
+    "academic-research":
+        ["白皮书", "对照实验", "假设检验", "实证研究", "p值",
+         "回归分析", "样本", "置信区间", "RCT", "meta分析",
+         "学术演讲", "research paper", "abstract"],
+    "creative-agency":
+        ["VI 设计", "agency pitch", "创意提案", "campaign",
+         "advertising", "广告创意", "品牌策划", "brand identity",
+         "key visual", "tagline", "art direction"],
+    "dark-premium":
+        ["私募", "奢侈品", "高净值", "premium", "VIP", "luxury",
+         "PE", "VC", "家族办公室", "private banking", "高端定制",
+         "藏品", "winemaker", "腕表", "yacht"],
 }
 
 

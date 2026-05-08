@@ -84,6 +84,47 @@ def test_pick_theme_claude_code_keywords():
     assert pick_theme(content, SKILL_ROOT / "themes") == "claude-code"
 
 
+# ---- new 10 business-grade themes ----
+
+@pytest.mark.parametrize("content, expected", [
+    ("麦肯锡 BCG 战略转型 提案 PMO 组织设计", "minimalist-business"),
+    ("MECE 议题树 金字塔 假设驱动 takeaway 4P SWOT", "consulting"),
+    ("Stripe Linear Notion SaaS subscription Kubernetes Vercel", "modern-tech"),
+    ("年报 上市 财报披露 国资 央企 ESG 信息披露 董事会", "corporate-classic"),
+    ("种子轮 估值 BP TAM Sequoia a16z preseed term sheet 募资", "pitch-deck"),
+    ("Vogue lookbook 时装 campaign 新品发布 lifestyle 趋势报告", "editorial-magazine"),
+    ("GMV DAU MAU MRR LTV CAC 留存率 漏斗 cohort ARPU", "data-heavy"),
+    ("白皮书 对照实验 假设检验 实证研究 p值 RCT meta分析", "academic-research"),
+    ("VI 设计 agency pitch 创意提案 key visual brand identity", "creative-agency"),
+    ("私募 奢侈品 高净值 VIP luxury PE VC 家族办公室 腕表", "dark-premium"),
+])
+def test_pick_theme_business_grade_themes(content, expected):
+    assert pick_theme(content, SKILL_ROOT / "themes") == expected
+
+
+@pytest.mark.parametrize("theme_name", [
+    "minimalist-business", "consulting", "modern-tech",
+    "corporate-classic", "pitch-deck", "editorial-magazine",
+    "data-heavy", "academic-research", "creative-agency", "dark-premium",
+])
+def test_new_themes_load_with_full_schema(theme_name):
+    """Every new theme JSON must have the complete schema and be loadable."""
+    from _common import load_theme
+    theme = load_theme(SKILL_ROOT / "themes" / f"{theme_name}.json")
+    # Required palette keys
+    for key in ("primary", "primary_soft", "accent", "text_strong", "text",
+                 "text_muted", "background", "surface", "border"):
+        assert theme.palette.get(key), f"{theme_name} missing palette.{key}"
+    # Required typography keys
+    typo = theme.typography
+    assert typo.get("font_family")
+    assert typo.get("size_pt")
+    for role in ("title", "subtitle", "h2", "body", "caption", "badge"):
+        assert role in typo["size_pt"], f"{theme_name} missing size_pt.{role}"
+    # Required decoration keys
+    assert theme.raw.get("decoration")
+
+
 def test_pick_theme_empty_falls_back():
     """Empty content returns the default fallback."""
     assert pick_theme("", SKILL_ROOT / "themes") == "clean-tech"

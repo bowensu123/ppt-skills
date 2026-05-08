@@ -1,0 +1,60 @@
+{
+  "name": "data-heavy",
+  "palette": {
+    "primary": "0066CC",
+    "primary_soft": "E0EBF5",
+    "accent": "00ACC1",
+    "accent_warn": "F57C00",
+    "text_strong": "1A1A1A",
+    "text": "404040",
+    "text_muted": "707070",
+    "background": "FFFFFF",
+    "surface": "F8F9FA",
+    "border": "D8DEE3"
+  },
+  "typography": {
+    "font_family": "Microsoft YaHei",
+    "size_pt": {
+      "title": 22,
+      "subtitle": 11,
+      "h2": 13,
+      "body": 10,
+      "caption": 8,
+      "badge": 9
+    },
+    "bold": {
+      "title": true,
+      "subtitle": false,
+      "h2": true,
+      "body": false,
+      "caption": false,
+      "badge": true
+    },
+    "color_role": {
+      "title": "text_strong",
+      "subtitle": "primary",
+      "h2": "primary",
+      "body": "text",
+      "caption": "text_muted",
+      "badge": "background"
+    }
+  },
+  "spacing": {
+    "slide_padding_emu": 274320,
+    "card_padding_emu": 91440,
+    "row_min_gap_emu": 91440,
+    "col_min_gap_emu": 91440,
+    "subtitle_gap_below_title_emu": 45720
+  },
+  "decoration": {
+    "card_fill_role": "surface",
+    "card_border_role": "border",
+    "card_border_pt": 0.5,
+    "card_corner_radius_ratio": 0.02,
+    "card_shadow": false,
+    "badge_fill_role": "accent",
+    "section_fill_role": "primary_soft",
+    "connector_color_role": "primary",
+    "connector_pt": 0.75
+  }
+}

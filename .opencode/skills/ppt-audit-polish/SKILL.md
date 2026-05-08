@@ -5,8 +5,8 @@ compatibility: opencode
 metadata:
   audience: presentation-authors
   workflow: ppt-review
-  ops_count: 53
-  themes_count: 5
+  ops_count: 56
+  themes_count: 15
   templates_count: 1
 ---
 
@@ -714,11 +714,36 @@ python scripts/mutate.py set-font-family --in deck.pptx --out v1.pptx --scope al
 
 See [docs/mutate-ops.md](docs/mutate-ops.md) for all 45 ops.
 
-## Themes
+## Themes (15 built-in)
 
-`themes/`: `clean-tech.json` (default tech blue), `academic-soft.json`, `business-warm.json`, `editorial-dark.json`, `claude-code.json` (dark + coral, pairs with the `claude-code` template).
+Pass `--theme themes/<name>.json` to `apply-typography`, `apply-card-style`, `apply-badge-style`, `style-connector`, `polish-business`. Or omit `--theme` and let the auto-picker (content keywords + slide background luminance) decide.
 
-Pass `--theme themes/<name>.json` to `apply-typography`, `apply-card-style`, `apply-badge-style`, `style-connector`. See [docs/themes.md](docs/themes.md).
+**Original 5** (general-purpose):
+
+| Theme | Best for |
+|---|---|
+| `clean-tech` | AI / tech / SaaS infrastructure (default light blue) |
+| `business-warm` | Friendly business — sales, marketing, customer narratives |
+| `academic-soft` | Light academic — gentle research / study material |
+| `editorial-dark` | Dark editorial — blog / opinion / brand voice |
+| `claude-code` | Dev / agent / CLI content (dark + coral + monospace; pairs with claude-code template) |
+
+**Business-grade 10** (per real-world deck taxonomy):
+
+| Theme | Style | Best for |
+|---|---|---|
+| `minimalist-business` | 大量留白、几何线条、克制黑白灰 + 单点缀色 | 麦肯锡 / 贝恩 / BCG 风格的咨询提案 / 年度汇报 / 严肃议题 |
+| `consulting` | 信息密度高、深蓝/酒红、金字塔/矩阵结构 | 专业咨询报告、conclusion-first 风格 takeaway |
+| `modern-tech` | 深色 + 紫/青渐变、抽象几何 | Stripe / Linear / Notion 风格的产品发布、SaaS、AI 主题 |
+| `corporate-classic` | 信任蓝 + 金线点缀、整齐网格、清晰 LOGO 区 | 金融、银行、保险、制造、政府汇报 |
+| `pitch-deck` | 节奏感强、大字标题、橙黑撞色、强边框 | 融资路演（YC / Sequoia / a16z 风格）|
+| `editorial-magazine` | 大字号杂志标题、暖米底、酒红强调 | 品牌发布、市场营销、消费品类杂志感 |
+| `data-heavy` | 紧凑布局、数据系列区分色、小字号 | 财报、运营复盘、市场研究、看板类 |
+| `academic-research` | 严谨衬线字体、奶油纸底、深绿点缀 | 白皮书、学术演讲、对照实验报告 |
+| `creative-agency` | 大胆撞色（粉/青/金）、强边框、异形排版 | 广告公司、设计工作室、创意提案 |
+| `dark-premium` | 全黑 + 金/银点缀、奢华大间距 | 奢侈品、私募、家族办公室、高端定制 |
+
+See [docs/themes.md](docs/themes.md) for the field-by-field schema.
 
 ## Guardrails
 
