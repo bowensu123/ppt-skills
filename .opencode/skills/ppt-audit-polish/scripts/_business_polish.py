@@ -452,6 +452,10 @@ THEME_KEYWORDS = {
         ["私募", "奢侈品", "高净值", "premium", "VIP", "luxury",
          "PE", "VC", "家族办公室", "private banking", "高端定制",
          "藏品", "winemaker", "腕表", "yacht"],
+    "huawei-style":
+        ["华为", "Huawei", "鸿蒙", "HarmonyOS", "鲲鹏", "昇腾",
+         "MindSpore", "OpenEuler", "Ascend", "Kirin", "海思",
+         "HiSilicon", "OceanStor", "FusionCompute", "ICT", "5G"],
 }
 
 

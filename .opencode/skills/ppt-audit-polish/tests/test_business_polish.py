@@ -97,6 +97,7 @@ def test_pick_theme_claude_code_keywords():
     ("白皮书 对照实验 假设检验 实证研究 p值 RCT meta分析", "academic-research"),
     ("VI 设计 agency pitch 创意提案 key visual brand identity", "creative-agency"),
     ("私募 奢侈品 高净值 VIP luxury PE VC 家族办公室 腕表", "dark-premium"),
+    ("华为 鸿蒙 HarmonyOS 鲲鹏 昇腾 MindSpore Kirin 海思", "huawei-style"),
 ])
 def test_pick_theme_business_grade_themes(content, expected):
     assert pick_theme(content, SKILL_ROOT / "themes") == expected
@@ -106,6 +107,7 @@ def test_pick_theme_business_grade_themes(content, expected):
     "minimalist-business", "consulting", "modern-tech",
     "corporate-classic", "pitch-deck", "editorial-magazine",
     "data-heavy", "academic-research", "creative-agency", "dark-premium",
+    "huawei-style",
 ])
 def test_new_themes_load_with_full_schema(theme_name):
     """Every new theme JSON must have the complete schema and be loadable."""
@@ -123,6 +125,59 @@ def test_new_themes_load_with_full_schema(theme_name):
         assert role in typo["size_pt"], f"{theme_name} missing size_pt.{role}"
     # Required decoration keys
     assert theme.raw.get("decoration")
+
+
+def test_huawei_theme_has_layout_regions():
+    """huawei-style ships with corporate-mandated layout_regions that the
+    agent should respect when designing layout.json. Verify the schema."""
+    import json
+    raw = json.loads(
+        (SKILL_ROOT / "themes" / "huawei-style.json").read_text(encoding="utf-8"),
+    )
+    regions = raw.get("layout_regions")
+    assert regions is not None, "huawei-style must have layout_regions"
+    # Must have 3 named regions + margins
+    for region_name in ("title", "tag", "content", "margins"):
+        assert region_name in regions, f"missing region {region_name}"
+    # Each region (except margins) has bbox in EMU
+    for region_name in ("title", "tag", "content"):
+        region = regions[region_name]
+        for key in ("x_emu", "y_emu", "w_emu", "h_emu"):
+            assert key in region, f"{region_name} missing {key}"
+            assert isinstance(region[key], int), f"{region_name}.{key} not int"
+    # slide_dims present
+    dims = raw.get("slide_dims")
+    assert dims is not None
+    assert dims.get("aspect") == "16:9"
+    assert dims.get("width_emu") == 12192000
+
+
+def test_huawei_theme_palette_has_extended_grays():
+    """huawei-style spec includes extra gray levels (text_light / text_label /
+    surface_medium / surface_dark / gradient_light) that a strict deck
+    template needs."""
+    import json
+    raw = json.loads(
+        (SKILL_ROOT / "themes" / "huawei-style.json").read_text(encoding="utf-8"),
+    )
+    palette = raw["palette"]
+    for extra in ("text_light", "text_label", "surface_medium",
+                   "surface_dark", "gradient_light", "primary_dark"):
+        assert extra in palette, f"huawei palette missing {extra}"
+    # Brand red colors
+    assert palette["primary"] == "C00000"
+    assert palette["primary_dark"] == "A90102"
+
+
+def test_huawei_theme_dual_font_family():
+    """Huawei spec uses 微软雅黑 for Chinese + Arial for English."""
+    import json
+    raw = json.loads(
+        (SKILL_ROOT / "themes" / "huawei-style.json").read_text(encoding="utf-8"),
+    )
+    typo = raw["typography"]
+    assert typo["font_family"] == "微软雅黑"
+    assert typo["font_family_english"] == "Arial"
 
 
 def test_pick_theme_empty_falls_back():

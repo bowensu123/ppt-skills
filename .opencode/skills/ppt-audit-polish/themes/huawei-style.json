@@ -1,0 +1,120 @@
+{
+  "name": "huawei-style",
+  "palette": {
+    "primary": "C00000",
+    "primary_soft": "F2F2F2",
+    "primary_dark": "A90102",
+    "accent": "A90102",
+    "accent_warn": "262626",
+    "text_strong": "000000",
+    "text": "333333",
+    "text_muted": "595659",
+    "text_light": "7F7F7F",
+    "text_label": "4D4D4D",
+    "background": "FFFFFF",
+    "surface": "F7F7F7",
+    "surface_medium": "D9D9D9",
+    "surface_dark": "262626",
+    "border": "BFBFBF",
+    "gradient_light": "F8F8F8"
+  },
+  "typography": {
+    "font_family": "微软雅黑",
+    "font_family_english": "Arial",
+    "size_pt": {
+      "title": 24,
+      "subtitle": 14,
+      "h2": 16,
+      "body": 12,
+      "caption": 10,
+      "badge": 10
+    },
+    "bold": {
+      "title": true,
+      "subtitle": false,
+      "h2": true,
+      "body": false,
+      "caption": false,
+      "badge": true
+    },
+    "color_role": {
+      "title": "text_strong",
+      "subtitle": "text_muted",
+      "h2": "primary",
+      "body": "text",
+      "caption": "text_light",
+      "badge": "background"
+    }
+  },
+  "spacing": {
+    "slide_padding_emu": 457200,
+    "card_padding_emu": 182880,
+    "row_min_gap_emu": 137160,
+    "col_min_gap_emu": 137160,
+    "subtitle_gap_below_title_emu": 91440
+  },
+  "decoration": {
+    "card_fill_role": "surface",
+    "card_border_role": "border",
+    "card_border_pt": 0.5,
+    "card_corner_radius_ratio": 0.0,
+    "card_shadow": false,
+    "badge_fill_role": "primary",
+    "section_fill_role": "primary",
+    "connector_color_role": "primary",
+    "connector_pt": 1.0
+  },
+  "slide_dims": {
+    "width_emu": 12192000,
+    "height_emu": 6858000,
+    "width_inches": 13.333,
+    "height_inches": 7.5,
+    "aspect": "16:9"
+  },
+  "layout_regions": {
+    "_comment": "Huawei corporate template fixed regions in EMU. When agent picks this theme, layout.json should use these regions for title / tag / content placement instead of free-form bboxes. Source values from Huawei deck spec (inches).",
+    "margins": {
+      "left_emu": 457200,
+      "right_emu": 457200,
+      "top_emu": 137160,
+      "bottom_emu": 365760,
+      "left_inches": 0.5,
+      "right_inches": 0.5,
+      "top_inches": 0.15,
+      "bottom_inches": 0.4
+    },
+    "title": {
+      "x_emu": 374904,
+      "y_emu": 274320,
+      "w_emu": 11430000,
+      "h_emu": 411480,
+      "x_inches": 0.41,
+      "y_inches": 0.30,
+      "w_inches": 12.5,
+      "h_inches": 0.45,
+      "_role": "Slide title bar — use kind: text with bold=true, color text_strong"
+    },
+    "tag": {
+      "x_emu": 10323648,
+      "y_emu": 0,
+      "w_emu": 1874520,
+      "h_emu": 265176,
+      "x_inches": 11.29,
+      "y_inches": 0.0,
+      "w_inches": 2.05,
+      "h_inches": 0.29,
+      "_role": "Top-right corner tag — for project / chapter label, fill primary, text background"
+    },
+    "content": {
+      "x_emu": 457200,
+      "y_emu": 822960,
+      "w_emu": 11277115,
+      "h_emu": 5577840,
+      "x_inches": 0.5,
+      "y_inches": 0.9,
+      "w_inches": 12.333,
+      "h_inches": 6.1,
+      "_role": "Main content canvas — agent designs internal grid (cards / charts / diagrams) within this bbox"
+    }
+  }
+}

@@ -6,7 +6,7 @@ metadata:
   audience: presentation-authors
   workflow: ppt-review
   ops_count: 56
-  themes_count: 15
+  themes_count: 16
   templates_count: 0
 ---
 
@@ -710,7 +710,7 @@ python scripts/mutate.py set-font-family --in deck.pptx --out v1.pptx --scope al
 
 See [docs/mutate-ops.md](docs/mutate-ops.md) for all 45 ops.
 
-## Themes (15 built-in)
+## Themes (16 built-in)
 
 Pass `--theme themes/<name>.json` to `apply-typography`, `apply-card-style`, `apply-badge-style`, `style-connector`, `polish-business`. Or omit `--theme` and let the auto-picker (content keywords + slide background luminance) decide.
 
@@ -738,6 +738,26 @@ Pass `--theme themes/<name>.json` to `apply-typography`, `apply-card-style`, `ap
 | `academic-research` | 严谨衬线字体、奶油纸底、深绿点缀 | 白皮书、学术演讲、对照实验报告 |
 | `creative-agency` | 大胆撞色（粉/青/金）、强边框、异形排版 | 广告公司、设计工作室、创意提案 |
 | `dark-premium` | 全黑 + 金/银点缀、奢华大间距 | 奢侈品、私募、家族办公室、高端定制 |
+
+**Brand-specific 1**:
+
+| 主题 | 配色特征 | 应用场景 |
+|---|---|---|
+| `huawei-style` | 华为红 #C00000 + 灰阶层级（黑/深灰/中灰/浅灰）+ 微软雅黑/Arial 双字体 + **固定布局区域**（title bar / 右上角 tag / 主内容区） | 华为内部汇报、鸿蒙/鲲鹏/昇腾产品提案、ICT 行业 deck |
+
+### 含 layout_regions 的主题（华为）
+
+`huawei-style` 主题在 JSON 里包含 `layout_regions` 字段，规定了：
+
+- **slide_dims**：页面尺寸 13.333" × 7.5"（标准 16:9）
+- **margins**：上 0.15"、下 0.4"、左/右 0.5"
+- **title 区域**：(0.41", 0.30") 起，宽 12.5" 高 0.45"
+- **tag 区域**（右上角标签）：(11.29", 0") 起，宽 2.05" 高 0.29"
+- **content 区域**：(0.5", 0.9") 起，宽 12.333" 高 6.1"
+
+当 agent 选定 `huawei-style` 时（不论自动还是显式 `--theme`），写 `layout.json` / `relocation.json` 应**优先使用这些区域作为画布**，不再随意决定 title / tag / content 的 bbox。content 区域内部的卡片网格仍由 agent 设计。
+
+其他 15 个主题没有 `layout_regions` 字段——agent 完全自由设计 title/content 位置。
 
 See [docs/themes.md](docs/themes.md) for the field-by-field schema.
 
